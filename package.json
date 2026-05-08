@@ -1,9 +1,8 @@
 {
-  "name": "pi-extensions",
+  "name": "@tianrendong/pi-extensions",
   "version": "0.1.0",
   "description": "Umbrella Pi package bundling pi-qq, pi-chrome, and trifecta-footer.",
   "type": "module",
-  "private": true,
   "keywords": [
     "pi-package",
     "pi-extension",
@@ -12,6 +11,17 @@
     "trifecta-footer"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/tianrendong/pi-extensions.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tianrendong/pi-extensions/issues"
+  },
+  "homepage": "https://github.com/tianrendong/pi-extensions#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "pack:dry-run": "npm pack --dry-run"
   },

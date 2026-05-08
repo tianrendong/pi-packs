@@ -1,4 +1,4 @@
-# pi-extensions
+# @tianrendong/pi-extensions
 
 Umbrella Pi package that folds these individually published npm extensions into one installable package:
 
@@ -11,6 +11,12 @@ Umbrella Pi package that folds these individually published npm extensions into 
 ```bash
 npm install
 pi install /Users/tianrendong/pi-extensions
+```
+
+Or, after publishing to npm:
+
+```bash
+pi install npm:@tianrendong/pi-extensions
 ```
 
 Then remove the individual package entries if you no longer want duplicates:
