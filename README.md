@@ -17,7 +17,7 @@ Umbrella Pi package that folds these individually published npm extensions into 
 
 ```bash
 npm install
-pi install /Users/tianrendong/pi-extensions
+pi install /Users/tianrendong/pi-packages
 ```
 
 Or, after publishing to npm:

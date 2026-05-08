@@ -13,12 +13,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/tianrendong/pi-extensions.git"
+    "url": "git+ssh://git@github.com/tianrendong/pi-packages.git"
   },
   "bugs": {
-    "url": "https://github.com/tianrendong/pi-extensions/issues"
+    "url": "https://github.com/tianrendong/pi-packages/issues"
   },
-  "homepage": "https://github.com/tianrendong/pi-extensions#readme",
+  "homepage": "https://github.com/tianrendong/pi-packages#readme",
   "publishConfig": {
     "access": "public"
   },
