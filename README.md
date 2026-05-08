@@ -43,7 +43,7 @@ pi remove npm:trifecta-footer
 }
 ```
 
-The dependencies are also listed in `bundledDependencies`, so if this umbrella package is packed/published, the three extension packages are included in the tarball.
+The dependencies are also listed in `bundledDependencies`, so if this umbrella package is packed/published, the three extension packages are included in the tarball. Chrome-control code lives in the `pi-chrome` package only; `tr-pi` just bundles and exposes that package entrypoint.
 
 ## Verify package contents
 

@@ -1,6 +1,6 @@
 {
   "name": "tr-pi",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Umbrella Pi package bundling pi-qq, pi-chrome, and trifecta-footer.",
   "type": "module",
   "keywords": [
@@ -26,7 +26,7 @@
     "pack:dry-run": "npm pack --dry-run"
   },
   "dependencies": {
-    "pi-chrome": "^0.6.0",
+    "pi-chrome": "^0.7.0",
     "pi-qq": "^0.1.13",
     "trifecta-footer": "^0.2.3"
   },
