@@ -1,0 +1,35 @@
+{
+  "name": "trifecta-footer",
+  "version": "0.2.3",
+  "description": "Never accidentally run Opus on a typo. Pi footer for model, thinking, and context.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "footer",
+    "statusline",
+    "trifecta",
+    "model",
+    "thinking",
+    "context",
+    "context-window"
+  ],
+  "license": "MIT",
+  "files": [
+    "assets",
+    "extensions",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/status-footer.ts"
+    ],
+    "image": "https://cdn.jsdelivr.net/npm/trifecta-footer@0.2.3/assets/screenshot.png"
+  }
+}

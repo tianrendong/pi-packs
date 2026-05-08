@@ -25,10 +25,13 @@
   "scripts": {
     "pack:dry-run": "npm pack --dry-run"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "dependencies": {
-    "pi-chrome": "^0.7.0",
-    "pi-qq": "^0.1.13",
-    "trifecta-footer": "^0.2.3"
+    "pi-chrome": "file:packages/pi-chrome",
+    "pi-qq": "file:packages/pi-qq",
+    "trifecta-footer": "file:packages/trifecta-footer"
   },
   "bundledDependencies": [
     "pi-chrome",

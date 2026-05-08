@@ -9,8 +9,9 @@ Umbrella Pi package that folds these individually published npm extensions into 
 ## Operating principles
 
 1. Each extension is its own independently published npm package.
-2. `tr-pi` is only an umbrella installer: it lets users install all of the extensions with one command.
-3. `tr-pi` must not know or document implementation details of any individual extension. Extension-specific code, docs, skills, versioning, and release notes belong with that extension package.
+2. Each extension package is tracked in this repo under `packages/` and wired into the umbrella through npm workspaces.
+3. `tr-pi` is only an umbrella installer: it lets users install all of the extensions with one command.
+4. `tr-pi` must not know or document implementation details of any individual extension. Extension-specific code, docs, skills, versioning, and release notes belong with that extension package.
 
 ## Install locally while developing
 
@@ -35,7 +36,7 @@ pi remove npm:trifecta-footer
 
 ## How this package works
 
-`package.json` declares the three extensions as npm dependencies and exposes their Pi extension entrypoints through the `pi.extensions` manifest:
+`package.json` declares the three extensions as local workspace dependencies and exposes their Pi extension entrypoints through the `pi.extensions` manifest:
 
 ```json
 {
