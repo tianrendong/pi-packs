@@ -1,0 +1,6 @@
+packages/
+.pi/
+dist/
+build/
+.DS_Store
+*.tgz
