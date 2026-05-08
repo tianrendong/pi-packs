@@ -1,0 +1,41 @@
+{
+  "name": "pi-extensions",
+  "version": "0.1.0",
+  "description": "Umbrella Pi package bundling pi-qq, pi-chrome, and trifecta-footer.",
+  "type": "module",
+  "private": true,
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-qq",
+    "pi-chrome",
+    "trifecta-footer"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "pack:dry-run": "npm pack --dry-run"
+  },
+  "dependencies": {
+    "pi-chrome": "^0.6.0",
+    "pi-qq": "^0.1.13",
+    "trifecta-footer": "^0.2.3"
+  },
+  "bundledDependencies": [
+    "pi-chrome",
+    "pi-qq",
+    "trifecta-footer"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./node_modules/pi-qq/index.ts",
+      "./node_modules/pi-chrome/extensions/chrome-profile-bridge/index.ts",
+      "./node_modules/trifecta-footer/extensions/status-footer.ts"
+    ]
+  }
+}
