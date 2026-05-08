@@ -1,5 +1,5 @@
 {
-  "name": "pi-t",
+  "name": "tr-pi",
   "version": "0.1.0",
   "description": "Umbrella Pi package bundling pi-qq, pi-chrome, and trifecta-footer.",
   "type": "module",

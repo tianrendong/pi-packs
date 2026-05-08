@@ -1,4 +1,4 @@
-# pi-t
+# tr-pi
 
 Umbrella Pi package that folds these individually published npm extensions into one installable package:
 
@@ -16,7 +16,7 @@ pi install /Users/tianrendong/pi-extensions
 Or, after publishing to npm:
 
 ```bash
-pi install npm:pi-t
+pi install npm:tr-pi
 ```
 
 Then remove the individual package entries if you no longer want duplicates:
