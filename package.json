@@ -1,13 +1,14 @@
 {
   "name": "tr-pi",
-  "version": "0.2.2",
-  "description": "Umbrella Pi package bundling pi-qq, pi-chrome, and trifecta-footer.",
+  "version": "0.3.0",
+  "description": "Umbrella Pi package bundling pi-qq, pi-chrome, pi-linter, and trifecta-footer.",
   "type": "module",
   "keywords": [
     "pi-package",
     "pi-extension",
     "pi-qq",
     "pi-chrome",
+    "pi-linter",
     "trifecta-footer"
   ],
   "license": "MIT",
@@ -30,11 +31,13 @@
   ],
   "dependencies": {
     "pi-chrome": "file:packages/pi-chrome",
+    "pi-linter": "file:packages/pi-linter",
     "pi-qq": "file:packages/pi-qq",
     "trifecta-footer": "file:packages/trifecta-footer"
   },
   "bundledDependencies": [
     "pi-chrome",
+    "pi-linter",
     "pi-qq",
     "trifecta-footer"
   ],
@@ -48,6 +51,7 @@
     "extensions": [
       "./node_modules/pi-qq/index.ts",
       "./node_modules/pi-chrome/extensions/chrome-profile-bridge/index.ts",
+      "./node_modules/pi-linter/index.ts",
       "./node_modules/trifecta-footer/extensions/status-footer.ts"
     ]
   }

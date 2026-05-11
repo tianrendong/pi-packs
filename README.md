@@ -4,6 +4,7 @@ Umbrella Pi package that folds these individually published npm extensions into 
 
 - [`pi-qq`](https://www.npmjs.com/package/pi-qq) — ask side questions in Pi without polluting the main transcript.
 - [`pi-chrome`](https://www.npmjs.com/package/pi-chrome) — drive your existing logged-in Chrome from Pi.
+- [`pi-linter`](https://www.npmjs.com/package/pi-linter) — inline session linter above the input bar (vague openers, scope creep, unbounded loops, …).
 - [`trifecta-footer`](https://www.npmjs.com/package/trifecta-footer) — footer/statusline for model, thinking, and context.
 
 ## Operating principles
@@ -31,6 +32,7 @@ Then remove the individual package entries if you no longer want duplicates:
 ```bash
 pi remove npm:pi-qq
 pi remove npm:pi-chrome
+pi remove npm:pi-linter
 pi remove npm:trifecta-footer
 ```
 
@@ -44,6 +46,7 @@ pi remove npm:trifecta-footer
     "extensions": [
       "./node_modules/pi-qq/index.ts",
       "./node_modules/pi-chrome/extensions/chrome-profile-bridge/index.ts",
+      "./node_modules/pi-linter/index.ts",
       "./node_modules/trifecta-footer/extensions/status-footer.ts"
     ]
   }
