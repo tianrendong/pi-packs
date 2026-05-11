@@ -1,6 +1,6 @@
 {
   "name": "tr-pi",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Umbrella Pi package bundling pi-qq, pi-chrome, pi-linter, and trifecta-footer.",
   "type": "module",
   "keywords": [
@@ -23,6 +23,10 @@
   "publishConfig": {
     "access": "public"
   },
+  "files": [
+    "extensions",
+    "README.md"
+  ],
   "scripts": {
     "pack:dry-run": "npm pack --dry-run"
   },
@@ -49,6 +53,7 @@
   },
   "pi": {
     "extensions": [
+      "./extensions/install-command.ts",
       "./node_modules/pi-qq/index.ts",
       "./node_modules/pi-chrome/extensions/chrome-profile-bridge/index.ts",
       "./node_modules/pi-linter/index.ts",

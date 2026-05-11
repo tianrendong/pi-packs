@@ -14,20 +14,30 @@ Umbrella Pi package that folds these individually published npm extensions into 
 3. `tr-pi` is only an umbrella installer: it lets users install all of the extensions with one command.
 4. `tr-pi` must not know or document implementation details of any individual extension. Extension-specific code, docs, skills, versioning, and release notes belong with that extension package.
 
-## Install locally while developing
+## Install
+
+Bootstrap the umbrella once:
+
+```bash
+pi install npm:tr-pi
+```
+
+Or locally while developing:
 
 ```bash
 npm install
 pi install /Users/tianrendong/pi-packages
 ```
 
-Or, after publishing to npm:
+### `/install` — interactive picker inside Pi
 
-```bash
-pi install npm:tr-pi
-```
+After the umbrella is loaded, run `/install` in any Pi session. A toggle dialog lets you pick which of the bundled extensions to install as their own pi packages (so you can later update or remove them individually):
 
-Then remove the individual package entries if you no longer want duplicates:
+1. Pick scope: **Global** (`~/.pi/agent/settings.json`) or **Project** (`.pi/settings.json`).
+2. Toggle each package between `install` / `skip`.
+3. Press Enter/Esc to apply. For each `install` entry, pi shells out to `pi install [-l] npm:<name>`.
+
+If you previously installed individual packages and want to drop the duplicates after switching to the umbrella:
 
 ```bash
 pi remove npm:pi-qq
