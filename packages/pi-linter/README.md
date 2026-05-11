@@ -106,6 +106,16 @@ The rules in [`rules.ts`](./rules.ts) are pure functions over `LintContext`.
 You can read them like ESLint rules — the file is small and adding a new rule
 is one entry in the `RULES` array.
 
+## Quiet contexts
+
+pi-linter intentionally **stays silent** when:
+
+- The draft is a pi bash-mode invocation (leading `!` or `!!`, e.g. `!ls`,
+  `!!grep -rn 'still failing' .`). These are shell commands, not natural-language
+  prompts — the rules don't apply.
+- The draft is empty or whitespace-only.
+- `/pi-lint off` or `PI_LINT_OFF=1`.
+
 ## Compatibility
 
 Works in interactive mode (TUI). In `-p` print mode and JSON mode, `hasUI` is

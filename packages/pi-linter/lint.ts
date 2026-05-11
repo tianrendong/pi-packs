@@ -142,6 +142,16 @@ export function renderFindings(findings: Finding[], theme: ThemeLike): string[] 
 	return lines;
 }
 
+/**
+ * Drafts that are pure shell invocations (pi's bash mode, leading `!` or
+ * `!!`) are not natural-language prompts — the rules are not designed for
+ * them and would mostly fire false positives (e.g. `!watch the queue`,
+ * `!grep -rn 'still failing' .`). Skip linting entirely.
+ */
+export function isBashModeDraft(draft: string): boolean {
+	return /^\s*!{1,2}\S/.test(draft);
+}
+
 export function lintAndFormat(
 	ctx: ExtensionContext,
 	draft: string,
@@ -149,6 +159,9 @@ export function lintAndFormat(
 	enabled: ReadonlySet<string>,
 	theme: ThemeLike,
 ): { findings: Finding[]; lines: string[] } {
+	if (isBashModeDraft(draft)) {
+		return { findings: [], lines: [] };
+	}
 	const lintCtx = buildLintContext(ctx, draft);
 	const findings = runRules(lintCtx, disabled, enabled);
 	return { findings, lines: renderFindings(findings, theme) };
