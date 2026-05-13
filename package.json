@@ -1,15 +1,19 @@
 {
-  "name": "tr-pi",
-  "version": "0.4.0",
-  "description": "Umbrella Pi package bundling pi-qq, pi-chrome, pi-linter, and trifecta-footer.",
+  "name": "pi-packs",
+  "version": "0.7.9",
+  "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman).",
   "type": "module",
   "keywords": [
     "pi-package",
     "pi-extension",
+    "pi-packs",
     "pi-qq",
     "pi-chrome",
+    "pi-intercom",
     "pi-linter",
-    "trifecta-footer"
+    "pi-bar",
+    "pi-prompt-shelf",
+    "pi-caveman"
   ],
   "license": "MIT",
   "repository": {
@@ -33,31 +37,20 @@
   "workspaces": [
     "packages/*"
   ],
-  "dependencies": {
-    "pi-chrome": "file:packages/pi-chrome",
-    "pi-linter": "file:packages/pi-linter",
-    "pi-qq": "file:packages/pi-qq",
-    "trifecta-footer": "file:packages/trifecta-footer"
-  },
-  "bundledDependencies": [
-    "pi-chrome",
-    "pi-linter",
-    "pi-qq",
-    "trifecta-footer"
-  ],
-  "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "typebox": "*"
+  "pi-packs": {
+    "installable": [
+      { "name": "pi-qq", "description": "Ask side questions in an overlay." },
+      { "name": "pi-chrome", "description": "Drive your existing Chrome profile." },
+      { "name": "pi-intercom", "description": "Message other local Pi sessions." },
+      { "name": "pi-linter", "description": "Lint prompt drafts before sending." },
+      { "name": "pi-bar", "description": "Show model, thinking, and context in the footer.", "conflicts": ["trifecta-footer"] },
+      { "name": "pi-prompt-shelf", "description": "Shelve and restore prompt drafts." },
+      { "name": "pi-caveman", "description": "Make replies terse to save tokens." }
+    ]
   },
   "pi": {
     "extensions": [
-      "./extensions/install-command.ts",
-      "./node_modules/pi-qq/index.ts",
-      "./node_modules/pi-chrome/extensions/chrome-profile-bridge/index.ts",
-      "./node_modules/pi-linter/index.ts",
-      "./node_modules/trifecta-footer/extensions/status-footer.ts"
+      "./extensions/install-command.ts"
     ]
   }
 }

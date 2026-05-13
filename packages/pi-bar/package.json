@@ -1,15 +1,15 @@
 {
-  "name": "trifecta-footer",
-  "version": "0.2.3",
-  "description": "Never accidentally run Opus on a typo. Pi footer for model, thinking, and context.",
+  "name": "pi-bar",
+  "version": "0.3.0",
+  "description": "Never accidentally run Opus on a typo. Pi footer/statusline showing active model, thinking level, and context usage.",
   "type": "module",
   "keywords": [
     "pi-package",
     "pi-extension",
     "pi",
+    "pi-bar",
     "footer",
     "statusline",
-    "trifecta",
     "model",
     "thinking",
     "context",
@@ -30,6 +30,6 @@
     "extensions": [
       "./extensions/status-footer.ts"
     ],
-    "image": "https://cdn.jsdelivr.net/npm/trifecta-footer@0.2.3/assets/screenshot.png"
+    "image": "https://cdn.jsdelivr.net/npm/pi-bar@0.3.0/assets/screenshot.png"
   }
 }

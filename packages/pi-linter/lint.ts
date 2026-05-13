@@ -149,7 +149,7 @@ export function renderFindings(findings: Finding[], theme: ThemeLike): string[] 
  * `!grep -rn 'still failing' .`). Skip linting entirely.
  */
 export function isBashModeDraft(draft: string): boolean {
-	return /^\s*!{1,2}\S/.test(draft);
+	return /^\s*!/.test(draft);
 }
 
 export function lintAndFormat(

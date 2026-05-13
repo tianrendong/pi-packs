@@ -1,5 +1,5 @@
 /**
- * Trifecta footer extension.
+ * pi-bar — footer/statusline extension.
  *
  * Replaces the built-in footer with three left-aligned segments:
  *   ◈ <model name> ❯ ✦ think:<level> ❯ ◷ <context% / window>
@@ -9,6 +9,11 @@
  *
  * Re-renders on model change, thinking-level change, and after each
  * assistant turn so context usage stays current.
+ *
+ * Configuration env vars:
+ *   PI_BAR_SHOW=model,thinking,context
+ *   PI_BAR_THRESHOLDS=70,90
+ *   PI_BAR_ICONS=unicode|plain|emoji|nerdfont
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -83,7 +88,7 @@ function contextColor(
 }
 
 function parseSegments(): SegmentName[] {
-	const raw = process.env.PI_TRIFECTA_SHOW;
+	const raw = process.env.PI_BAR_SHOW;
 	if (!raw) return DEFAULT_SEGMENTS;
 
 	const requested = raw
@@ -97,7 +102,7 @@ function parseSegments(): SegmentName[] {
 }
 
 function parseThresholds(): { warningThreshold: number; errorThreshold: number } {
-	const raw = process.env.PI_TRIFECTA_THRESHOLDS;
+	const raw = process.env.PI_BAR_THRESHOLDS;
 	if (!raw) {
 		return {
 			warningThreshold: DEFAULT_WARNING_THRESHOLD,
@@ -125,7 +130,7 @@ function parseThresholds(): { warningThreshold: number; errorThreshold: number }
 }
 
 function parseIconPreset(): IconPreset {
-	const raw = process.env.PI_TRIFECTA_ICONS?.trim().toLowerCase();
+	const raw = process.env.PI_BAR_ICONS?.trim().toLowerCase();
 	if (raw === "plain" || raw === "emoji" || raw === "nerdfont") return raw;
 	return "unicode";
 }
