@@ -65,6 +65,25 @@ pi-chrome v<version>
 ✓ Companion Chrome extension responding (ID: <chrome-extension-id>, ext v<version>)
 ```
 
+## Trusted-input mode (CDP)
+
+By default, `chrome_*` clicks and keystrokes are **synthetic** DOM events (`event.isTrusted === false`). They drive React/Vue/Angular state correctly but **do not** satisfy Chrome's user-activation gates: clipboard write, fullscreen, file picker, and autoplay all need a real user gesture.
+
+pi-chrome can optionally route input through `chrome.debugger` (CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`) so each event arrives as `isTrusted=true`, satisfies user-activation, and bypasses site bot-detection that filters synthetic events. The tradeoff: Chrome pins a yellow *"Pi Existing Chrome Profile Bridge started debugging this browser"* banner to the top of any debugged tab.
+
+Usage:
+
+```text
+/chrome-trusted on       # all chrome_* tools dispatch via CDP
+/chrome-trusted off      # synthetic events only (default)
+/chrome-trusted auto     # CDP only when a tool passes trusted=true
+/chrome-trusted status   # show current mode and attached tabs
+```
+
+For a single call, pass `trusted: true` on `chrome_click`, `chrome_type`, `chrome_fill`, `chrome_key`, `chrome_hover`, `chrome_drag`, or `chrome_scroll`. The per-call value always wins over the session toggle.
+
+First time you upgrade to a pi-chrome that uses trusted input, Chrome will prompt to re-approve the extension's new `debugger` permission — do that once in `chrome://extensions`.
+
 ## Background mode
 
 By default, `chrome_*` tools focus Chrome and activate the target tab so you can watch the agent work — great for demos, pair-driving, debugging, and first-time confidence that things are happening.

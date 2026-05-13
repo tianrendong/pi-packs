@@ -509,23 +509,74 @@ Usage rules:
 				lines.push(`… Skipped MAIN-world capability checks because the loaded extension is stale.`);
 			}
 
-			// CDP availability hint.
-			try {
-				const controller = new AbortController();
-				const timer = setTimeout(() => controller.abort(), 250);
-				const response = await fetch("http://127.0.0.1:9222/json/version", { signal: controller.signal }).catch(() => undefined);
-				clearTimeout(timer);
-				if (response && response.ok) {
-					const info = (await response.json().catch(() => ({}))) as { Browser?: string };
-					lines.push(`✓ CDP endpoint reachable at 127.0.0.1:9222 (${info.Browser ?? "unknown"}). Trusted input via CDP is not yet wired into pi-chrome — reserved for a future release.`);
-				} else {
-					lines.push(`• CDP not available (no listener on 127.0.0.1:9222). Synthetic input only; autoplay/clipboard/file-picker gates cannot be satisfied. Future pi-chrome versions will use CDP for trusted input when this port is enabled.`);
+			// Trusted-input (chrome.debugger) probe.
+			if (extensionAlive && !versionMismatch) {
+				try {
+					const status = (await bridge.send("trusted.status", {}, 5_000)) as {
+						mode?: string;
+						attachedTabs?: number[];
+						permissionGranted?: boolean;
+					};
+					if (status.permissionGranted) {
+						lines.push(`✓ Trusted-input mode available via chrome.debugger (current: ${status.mode ?? "off"}${status.attachedTabs && status.attachedTabs.length ? `; attached to tab ${status.attachedTabs.join(",")}` : ""}). Pass trusted=true on chrome_click/type/etc, or run /chrome-trusted on, to satisfy isTrusted + user-activation gates.`);
+					} else {
+						lines.push(`⚠ chrome.debugger API unavailable. The extension is missing the "debugger" permission — reload the extension in chrome://extensions and accept the new permission prompt.`);
+					}
+				} catch (error) {
+					lines.push(`⚠ trusted.status probe failed: ${(error as Error).message}`);
 				}
-			} catch {
-				lines.push(`• CDP probe inconclusive.`);
 			}
 
 			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
+	pi.registerCommand("chrome-trusted", {
+		description:
+			"Toggle trusted-input mode for chrome_* tools. ON: all clicks/types/etc go through chrome.debugger (CDP) so events are browser-trusted (isTrusted=true) and satisfy user-activation gates (clipboard, fullscreen, autoplay, file picker). Tradeoff: Chrome pins a yellow 'started debugging this browser' banner to the top of any tab in use. OFF (default): synthetic DOM events. AUTO: attach on demand only when a per-call trusted=true is passed. STATUS: print current mode and attached tabs.",
+		getArgumentCompletions: (prefix) => {
+			const items = [
+				{ value: "on", label: "on", description: "All chrome_* tools dispatch via CDP. Yellow debugger banner appears." },
+				{ value: "off", label: "off", description: "Synthetic events only (default)." },
+				{ value: "auto", label: "auto", description: "Use CDP only when a tool passes trusted=true." },
+				{ value: "status", label: "status", description: "Show current trusted mode and any attached tabs." },
+			];
+			const lowered = prefix.toLowerCase();
+			const matches = items.filter((item) => item.value.startsWith(lowered));
+			return matches.length > 0 ? matches : null;
+		},
+		handler: async (args, ctx) => {
+			const arg = (args || "").trim().toLowerCase();
+			if (arg === "status" || arg === "") {
+				try {
+					const status = (await bridge.send("trusted.status", {}, 5_000)) as { mode: string; attachedTabs: number[]; permissionGranted: boolean };
+					const attached = status.attachedTabs?.length ? ` (attached to tab ${status.attachedTabs.join(",")})` : "";
+					const perm = status.permissionGranted ? "" : " — chrome.debugger API unavailable; reload the extension and accept the new permission.";
+					ctx.ui.notify(`Trusted-input mode: ${status.mode}${attached}${perm}`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Failed to read trusted mode: ${(error as Error).message}`, "warning");
+				}
+				return;
+			}
+			if (!["on", "off", "auto"].includes(arg)) {
+				ctx.ui.notify(`Unknown argument '${arg}'. Use: on | off | auto | status`, "warning");
+				return;
+			}
+			try {
+				const result = (await bridge.send("trusted.mode", { mode: arg }, 5_000)) as { mode: string };
+				if (result.mode === "on") {
+					ctx.ui.notify(
+						"Trusted-input mode ON. All chrome_* tools now dispatch through chrome.debugger (CDP). Chrome will show a yellow 'started debugging this browser' banner. Events arrive as isTrusted=true and satisfy user-activation gates.",
+						"info",
+					);
+				} else if (result.mode === "off") {
+					ctx.ui.notify("Trusted-input mode OFF. Synthetic events only. Any attached debugger sessions detached.", "info");
+				} else {
+					ctx.ui.notify("Trusted-input mode AUTO. CDP attaches only when a tool passes trusted=true.", "info");
+				}
+			} catch (error) {
+				ctx.ui.notify(`Failed to set trusted mode: ${(error as Error).message}`, "warning");
+			}
 		},
 	});
 
@@ -728,7 +779,7 @@ Usage rules:
 		name: "chrome_click",
 		label: "Chrome Click",
 		description:
-			"Click a snapshot uid, CSS selector, or viewport coordinate in an existing Chrome tab through the companion extension. The click is dispatched as a synthetic DOM event; by default Chrome is focused so the user can watch, pass background=true to click silently. Pass includeSnapshot=true to return a fresh snapshot after the click.",
+			"Click a snapshot uid, CSS selector, or viewport coordinate in an existing Chrome tab through the companion extension. Defaults to synthetic DOM events (isTrusted=false). Pass trusted=true (or run /chrome-trusted on) to route through chrome.debugger so events arrive as browser-trusted and satisfy user-activation gates — Chrome shows a yellow 'started debugging' banner while attached. Pass includeSnapshot=true to return a fresh snapshot after the click.",
 		promptSnippet: "Click page elements in Chrome by snapshot uid, selector, or viewport coordinate.",
 		parameters: Type.Object({
 			uid: Type.Optional(Type.String({ description: "Stable element uid from chrome_snapshot. Prefer uid over selector after taking a snapshot." })),
@@ -743,6 +794,7 @@ Usage rules:
 			background: Type.Optional(
 				Type.Boolean({ description: "If true, click silently without focusing Chrome. Default false." }),
 			),
+			trusted: Type.Optional(Type.Boolean({ description: "If true, dispatch through chrome.debugger / CDP so the event is browser-trusted (isTrusted=true, user-activation satisfied). Triggers Chrome's 'started debugging this browser' banner." })),
 			host: Type.Optional(Type.String()),
 			port: Type.Optional(Type.Number()),
 		}),
@@ -760,7 +812,7 @@ Usage rules:
 		name: "chrome_type",
 		label: "Chrome Type",
 		description:
-			"Focus an optional snapshot uid or CSS selector, then type text into an existing Chrome tab through the companion extension. By default focuses Chrome and activates the tab so the user can watch; pass background=true to type silently. Pass includeSnapshot=true to return a fresh snapshot after typing.",
+			"Focus an optional snapshot uid or CSS selector, then type text into an existing Chrome tab. Defaults to synthetic per-character keydown/beforeinput/input/keyup sequence. Pass trusted=true (or run /chrome-trusted on) to route through chrome.debugger so each keystroke is browser-trusted (isTrusted=true). Pass includeSnapshot=true to return a fresh snapshot after typing.",
 		promptSnippet: "Type text into Chrome, optionally focusing a snapshot uid or selector first.",
 		parameters: Type.Object({
 			text: Type.String(),
@@ -775,6 +827,7 @@ Usage rules:
 			background: Type.Optional(
 				Type.Boolean({ description: "If true, type silently without focusing Chrome. Default false." }),
 			),
+			trusted: Type.Optional(Type.Boolean({ description: "If true, dispatch through chrome.debugger / CDP so each keystroke is browser-trusted. Triggers Chrome's debugger banner." })),
 			host: Type.Optional(Type.String()),
 			port: Type.Optional(Type.Number()),
 		}),
@@ -807,6 +860,7 @@ Usage rules:
 			background: Type.Optional(
 				Type.Boolean({ description: "If true, fill silently without focusing Chrome. Default false." }),
 			),
+			trusted: Type.Optional(Type.Boolean({ description: "If true, dispatch through chrome.debugger / CDP for browser-trusted input. Triggers Chrome's debugger banner." })),
 			host: Type.Optional(Type.String()),
 			port: Type.Optional(Type.Number()),
 		}),
@@ -836,6 +890,7 @@ Usage rules:
 			background: Type.Optional(
 				Type.Boolean({ description: "If true, send the key silently without focusing Chrome. Default false." }),
 			),
+			trusted: Type.Optional(Type.Boolean({ description: "If true, dispatch through chrome.debugger / CDP so the keystroke is browser-trusted." })),
 			host: Type.Optional(Type.String()),
 			port: Type.Optional(Type.Number()),
 		}),
@@ -1006,6 +1061,7 @@ Usage rules:
 			urlIncludes: Type.Optional(Type.String()),
 			titleIncludes: Type.Optional(Type.String()),
 			background: Type.Optional(Type.Boolean()),
+			trusted: Type.Optional(Type.Boolean({ description: "If true, dispatch through chrome.debugger / CDP for browser-trusted hover." })),
 		}),
 		async execute(_id, params): Promise<ToolTextResult> {
 			const result = await bridge.send("page.hover", withBackground(params), DEFAULT_TIMEOUT_MS);
@@ -1032,6 +1088,7 @@ Usage rules:
 			urlIncludes: Type.Optional(Type.String()),
 			titleIncludes: Type.Optional(Type.String()),
 			background: Type.Optional(Type.Boolean()),
+			trusted: Type.Optional(Type.Boolean({ description: "If true, dispatch through chrome.debugger / CDP so the drag is browser-trusted (real HTML5 dragstart/drop with native DataTransfer)." })),
 		}),
 		async execute(_id, params): Promise<ToolTextResult> {
 			const result = await bridge.send("page.drag", withBackground(params), DEFAULT_TIMEOUT_MS);
@@ -1054,6 +1111,7 @@ Usage rules:
 			urlIncludes: Type.Optional(Type.String()),
 			titleIncludes: Type.Optional(Type.String()),
 			background: Type.Optional(Type.Boolean()),
+			trusted: Type.Optional(Type.Boolean({ description: "If true, dispatch wheel events through chrome.debugger / CDP for browser-trusted scrolling." })),
 		}),
 		async execute(_id, params): Promise<ToolTextResult> {
 			const result = await bridge.send("page.scroll", withBackground(params), DEFAULT_TIMEOUT_MS);

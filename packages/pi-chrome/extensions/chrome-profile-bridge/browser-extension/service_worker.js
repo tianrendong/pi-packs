@@ -3,6 +3,350 @@ const CLIENT_NAME = `Pi Chrome Bridge ${chrome.runtime.id}`;
 const POLL_ERROR_BACKOFF_MS = 2000;
 let polling = false;
 
+// =================== Trusted-input (CDP) layer ===================
+// Tracks which tabs we have attached chrome.debugger to, plus session-level mode.
+const attachedTabs = new Map(); // tabId -> { detachAt: number, pointer: {x,y} }
+let TRUSTED_MODE = "off"; // "off" | "on" | "auto"
+const TRUSTED_IDLE_DETACH_MS = 15_000;
+const CDP_VERSION = "1.3";
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function rng(min, max) { return min + Math.random() * (max - min); }
+
+async function wantsTrusted(params) {
+  if (params && params.trusted === false) return false;
+  if (params && params.trusted === true) return true;
+  return TRUSTED_MODE === "on";
+}
+
+function setTrustedMode(mode) {
+  const next = String(mode || "").toLowerCase();
+  if (!["off", "on", "auto"].includes(next)) throw new Error(`bad trusted mode: ${next}`);
+  TRUSTED_MODE = next;
+  if (next === "off") void detachAll();
+  return { mode: TRUSTED_MODE };
+}
+
+function trustedStatus() {
+  return {
+    mode: TRUSTED_MODE,
+    attachedTabs: Array.from(attachedTabs.keys()),
+    permissionGranted: typeof chrome !== "undefined" && !!chrome.debugger,
+  };
+}
+
+async function attachDebugger(tabId) {
+  if (!chrome.debugger) throw new Error("chrome.debugger API unavailable; reload the extension to grant the new permission");
+  if (attachedTabs.has(tabId)) {
+    const entry = attachedTabs.get(tabId);
+    entry.detachAt = Date.now() + TRUSTED_IDLE_DETACH_MS;
+    return entry;
+  }
+  await chrome.debugger.attach({ tabId }, CDP_VERSION);
+  // Seed pointer in a plausible "just left the address bar" location.
+  const entry = { detachAt: Date.now() + TRUSTED_IDLE_DETACH_MS, pointer: { x: 120 + Math.random() * 200, y: 80 + Math.random() * 120 } };
+  attachedTabs.set(tabId, entry);
+  return entry;
+}
+
+async function detachDebugger(tabId) {
+  if (!attachedTabs.has(tabId)) return;
+  attachedTabs.delete(tabId);
+  try { await chrome.debugger.detach({ tabId }); } catch {}
+}
+
+async function detachAll() {
+  const ids = Array.from(attachedTabs.keys());
+  await Promise.all(ids.map(detachDebugger));
+}
+
+if (chrome.debugger && chrome.debugger.onDetach) {
+  chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
+    if (tabId !== undefined) attachedTabs.delete(tabId);
+    if (reason === "canceled_by_user") {
+      console.warn(`[pi-chrome] debugger canceled by user on tab ${tabId}; trusted mode will reattach on next call`);
+    }
+  });
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [tabId, entry] of attachedTabs) {
+    if (entry.detachAt && entry.detachAt < now && TRUSTED_MODE !== "on") {
+      void detachDebugger(tabId);
+    }
+  }
+}, 5000);
+
+function cdp(tabId, method, params) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.sendCommand({ tabId }, method, params || {}, (result) => {
+      if (chrome.runtime.lastError) reject(new Error(`${method}: ${chrome.runtime.lastError.message}`));
+      else resolve(result);
+    });
+  });
+}
+
+// Resolve target -> {x, y, rect} in viewport coords by running tiny script in tab.
+async function resolveTargetInTab(tabId, params) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, frameIds: [0] },
+    world: "MAIN",
+    func: (selector, uid, x, y) => {
+      const state = window.__PI_CHROME_STATE__;
+      let el = null;
+      if (uid && state && state.elements && state.elements[uid]) el = state.elements[uid];
+      else if (selector) el = document.querySelector(selector);
+      if (el) {
+        el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, rect: { left: r.left, top: r.top, width: r.width, height: r.height }, tag: el.tagName, found: true };
+      }
+      if (typeof x === "number" && typeof y === "number") return { x, y, rect: null, tag: null, found: true };
+      return { found: false };
+    },
+    args: [params.selector ?? null, params.uid ?? null, params.x ?? null, params.y ?? null],
+  });
+  const v = results?.[0]?.result;
+  if (!v || !v.found) throw new Error("Could not resolve target element for trusted action");
+  return v;
+}
+
+function pickInsideRect(rect) {
+  if (!rect) return null;
+  const insetX = Math.min(rect.width * 0.35, Math.max(2, rect.width / 2 - 1));
+  const insetY = Math.min(rect.height * 0.35, Math.max(2, rect.height / 2 - 1));
+  return {
+    x: rect.left + rect.width / 2 + rng(-insetX, insetX),
+    y: rect.top + rect.height / 2 + rng(-insetY, insetY),
+  };
+}
+
+async function cdpMoveTo(tabId, x, y) {
+  const entry = attachedTabs.get(tabId);
+  const startX = entry?.pointer?.x ?? Math.max(20, Math.min(400, x - 200));
+  const startY = entry?.pointer?.y ?? Math.max(20, Math.min(400, y - 200));
+  const n = Math.max(10, Math.min(36, Math.round(Math.hypot(x - startX, y - startY) / 20)));
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const ease = t * t * (3 - 2 * t);
+    const wobble = Math.sin(t * Math.PI) * 8;
+    const px = startX + (x - startX) * ease + rng(-wobble, wobble);
+    const py = startY + (y - startY) * ease + rng(-wobble, wobble);
+    await cdp(tabId, "Input.dispatchMouseEvent", {
+      type: "mouseMoved", x: px, y: py, button: "none", buttons: 0, pointerType: "mouse",
+    });
+    await sleep(rng(5, 16));
+  }
+  if (entry) entry.pointer = { x, y };
+}
+
+function cdpModifiersFor(mods) {
+  let m = 0;
+  if (mods?.altKey) m |= 1;
+  if (mods?.ctrlKey) m |= 2;
+  if (mods?.metaKey) m |= 4;
+  if (mods?.shiftKey) m |= 8;
+  return m;
+}
+
+function cdpKeyInfo(key, shifted) {
+  // Map common keys to CDP key event init fields. Returns { code, key, windowsVirtualKeyCode, text }.
+  const SPECIAL = {
+    Enter: { code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
+    Tab: { code: "Tab", windowsVirtualKeyCode: 9, text: "\t" },
+    Backspace: { code: "Backspace", windowsVirtualKeyCode: 8, text: "" },
+    Delete: { code: "Delete", windowsVirtualKeyCode: 46, text: "" },
+    Escape: { code: "Escape", windowsVirtualKeyCode: 27, text: "" },
+    ArrowLeft: { code: "ArrowLeft", windowsVirtualKeyCode: 37, text: "" },
+    ArrowUp: { code: "ArrowUp", windowsVirtualKeyCode: 38, text: "" },
+    ArrowRight: { code: "ArrowRight", windowsVirtualKeyCode: 39, text: "" },
+    ArrowDown: { code: "ArrowDown", windowsVirtualKeyCode: 40, text: "" },
+    Shift: { code: "ShiftLeft", windowsVirtualKeyCode: 16, text: "" },
+    Control: { code: "ControlLeft", windowsVirtualKeyCode: 17, text: "" },
+    Alt: { code: "AltLeft", windowsVirtualKeyCode: 18, text: "" },
+    Meta: { code: "MetaLeft", windowsVirtualKeyCode: 91, text: "" },
+    " ": { code: "Space", windowsVirtualKeyCode: 32, text: " " },
+  };
+  if (SPECIAL[key]) return { key, ...SPECIAL[key] };
+  if (key.length === 1) {
+    const ch = key;
+    let code, vk;
+    if (/^[a-zA-Z]$/.test(ch)) { code = `Key${ch.toUpperCase()}`; vk = ch.toUpperCase().charCodeAt(0); }
+    else if (/^[0-9]$/.test(ch)) { code = `Digit${ch}`; vk = ch.charCodeAt(0); }
+    else { code = ch; vk = ch.charCodeAt(0); }
+    return { key: ch, code, windowsVirtualKeyCode: vk, text: ch };
+  }
+  return { key, code: key, windowsVirtualKeyCode: 0, text: "" };
+}
+
+async function cdpTypeChar(tabId, ch) {
+  const needShift = /^[A-Z]$/.test(ch) || "~!@#$%^&*()_+{}|:\"<>?".includes(ch);
+  let modifiers = 0;
+  if (needShift) {
+    await cdp(tabId, "Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 8 });
+    modifiers = 8;
+    await sleep(rng(8, 22));
+  }
+  const info = cdpKeyInfo(ch);
+  await cdp(tabId, "Input.dispatchKeyEvent", {
+    type: "keyDown", key: info.key, code: info.code,
+    windowsVirtualKeyCode: info.windowsVirtualKeyCode, nativeVirtualKeyCode: info.windowsVirtualKeyCode,
+    text: info.text, unmodifiedText: info.text, modifiers,
+  });
+  await sleep(rng(25, 90));
+  await cdp(tabId, "Input.dispatchKeyEvent", {
+    type: "keyUp", key: info.key, code: info.code,
+    windowsVirtualKeyCode: info.windowsVirtualKeyCode, modifiers,
+  });
+  if (needShift) {
+    await sleep(rng(5, 18));
+    await cdp(tabId, "Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 0 });
+  }
+  await sleep(rng(35, 130));
+}
+
+async function trustedClick(params) {
+  const tab = await getTabByParams(params);
+  if (params.foreground) await bringToFront(tab);
+  await attachDebugger(tab.id);
+  const resolved = await resolveTargetInTab(tab.id, params);
+  const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
+  await cdpMoveTo(tab.id, point.x, point.y);
+  await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse" });
+  await sleep(rng(45, 140));
+  await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: 1, pointerType: "mouse" });
+  return { trusted: true, x: point.x, y: point.y, tag: resolved.tag };
+}
+
+async function trustedHover(params) {
+  const tab = await getTabByParams(params);
+  if (params.foreground) await bringToFront(tab);
+  await attachDebugger(tab.id);
+  const resolved = await resolveTargetInTab(tab.id, params);
+  const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
+  await cdpMoveTo(tab.id, point.x, point.y);
+  await sleep(rng(80, 220));
+  return { trusted: true, x: point.x, y: point.y, tag: resolved.tag };
+}
+
+async function trustedKey(params) {
+  const tab = await getTabByParams(params);
+  if (params.foreground) await bringToFront(tab);
+  await attachDebugger(tab.id);
+  const key = String(params.key || "");
+  if (!key) throw new Error("trusted.key: missing key");
+  const info = cdpKeyInfo(key);
+  await cdp(tab.id, "Input.dispatchKeyEvent", {
+    type: "keyDown", key: info.key, code: info.code,
+    windowsVirtualKeyCode: info.windowsVirtualKeyCode, nativeVirtualKeyCode: info.windowsVirtualKeyCode,
+    text: info.text, unmodifiedText: info.text,
+  });
+  await sleep(rng(25, 90));
+  await cdp(tab.id, "Input.dispatchKeyEvent", {
+    type: "keyUp", key: info.key, code: info.code,
+    windowsVirtualKeyCode: info.windowsVirtualKeyCode,
+  });
+  return { trusted: true, key: info.key };
+}
+
+async function trustedType(params) {
+  const tab = await getTabByParams(params);
+  if (params.foreground) await bringToFront(tab);
+  await attachDebugger(tab.id);
+  if (params.selector || params.uid) {
+    // Focus target by clicking it first.
+    const resolved = await resolveTargetInTab(tab.id, params);
+    const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
+    await cdpMoveTo(tab.id, point.x, point.y);
+    await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse" });
+    await sleep(rng(45, 110));
+    await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: 1, pointerType: "mouse" });
+    await sleep(rng(50, 120));
+  }
+  const text = String(params.text || "");
+  for (const ch of Array.from(text)) await cdpTypeChar(tab.id, ch);
+  if (params.pressEnter) {
+    await cdpTypeChar(tab.id, "\r").catch(() => undefined);
+    await trustedKey({ ...params, key: "Enter" });
+  }
+  return { trusted: true, length: text.length };
+}
+
+async function trustedFill(params) {
+  const tab = await getTabByParams(params);
+  if (params.foreground) await bringToFront(tab);
+  await attachDebugger(tab.id);
+  if (!(params.selector || params.uid)) throw new Error("trusted.fill: selector or uid required");
+  const resolved = await resolveTargetInTab(tab.id, params);
+  const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
+  await cdpMoveTo(tab.id, point.x, point.y);
+  // Triple-click selects all in input fields.
+  for (let i = 1; i <= 3; i++) {
+    await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: i, pointerType: "mouse" });
+    await sleep(rng(20, 60));
+    await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: i, pointerType: "mouse" });
+    await sleep(rng(20, 60));
+  }
+  // Delete selection.
+  await cdp(tab.id, "Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
+  await cdp(tab.id, "Input.dispatchKeyEvent", { type: "keyUp", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
+  await sleep(rng(20, 60));
+  const text = String(params.text || "");
+  for (const ch of Array.from(text)) await cdpTypeChar(tab.id, ch);
+  if (params.submit) await trustedKey({ ...params, key: "Enter" });
+  return { trusted: true, length: text.length };
+}
+
+async function trustedScroll(params) {
+  const tab = await getTabByParams(params);
+  if (params.foreground) await bringToFront(tab);
+  await attachDebugger(tab.id);
+  const resolved = (params.selector || params.uid) ? await resolveTargetInTab(tab.id, params) : { x: 100, y: 100, rect: null };
+  const x = resolved.rect ? resolved.rect.left + Math.min(resolved.rect.width, 800) / 2 : resolved.x;
+  const y = resolved.rect ? resolved.rect.top + Math.min(resolved.rect.height, 600) / 2 : resolved.y;
+  const totalY = params.deltaY || 0, totalX = params.deltaX || 0;
+  const n = Math.max(3, Math.min(20, params.steps || Math.ceil(Math.abs(totalY) / 120)));
+  // momentum-shaped front-loaded weights
+  const w = []; for (let i = 1; i <= n; i++) w.push(1 / i);
+  const sumW = w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < n; i++) {
+    const dy = totalY * (w[i] / sumW), dx = totalX * (w[i] / sumW);
+    await cdp(tab.id, "Input.dispatchMouseEvent", {
+      type: "mouseWheel", x, y, deltaX: dx, deltaY: dy, pointerType: "mouse",
+    });
+    await sleep(rng(14, 32));
+  }
+  return { trusted: true, deltaX: totalX, deltaY: totalY, steps: n };
+}
+
+async function trustedDrag(params) {
+  const tab = await getTabByParams(params);
+  if (params.foreground) await bringToFront(tab);
+  await attachDebugger(tab.id);
+  const from = await resolveTargetInTab(tab.id, { selector: params.fromSelector ?? null, uid: params.fromUid ?? null, x: params.fromX ?? null, y: params.fromY ?? null });
+  const to = await resolveTargetInTab(tab.id, { selector: params.toSelector ?? null, uid: params.toUid ?? null, x: params.toX ?? null, y: params.toY ?? null });
+  const fp = from.rect ? pickInsideRect(from.rect) : { x: from.x, y: from.y };
+  const tp = to.rect ? pickInsideRect(to.rect) : { x: to.x, y: to.y };
+  await cdpMoveTo(tab.id, fp.x, fp.y);
+  await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: fp.x, y: fp.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse" });
+  await sleep(rng(60, 140));
+  const steps = params.steps || 20;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const ease = t * t * (3 - 2 * t);
+    const wobble = Math.sin(t * Math.PI) * 6;
+    const x = fp.x + (tp.x - fp.x) * ease + rng(-wobble, wobble);
+    const y = fp.y + (tp.y - fp.y) * ease + rng(-wobble, wobble);
+    await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "left", buttons: 1, pointerType: "mouse" });
+    await sleep(rng(10, 26));
+  }
+  await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: tp.x, y: tp.y, button: "left", buttons: 0, clickCount: 1, pointerType: "mouse" });
+  return { trusted: true, from: fp, to: tp, steps };
+}
+// ===============================================================
+
+
 function armKeepaliveAlarm() {
   chrome.alarms.create("pi-bridge-keepalive", { periodInMinutes: 0.5 });
 }
@@ -77,10 +421,6 @@ async function postResult(result) {
   });
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function isVersionOlder(a, b) {
   const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
   const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
@@ -128,21 +468,32 @@ async function dispatch(action, params) {
     case "page.evaluate":
       return evaluateInTab(params);
     case "page.click":
+      if (await wantsTrusted(params)) return trustedClick(params);
       return executeActionInTab(params, clickPage, [params.selector ?? null, params.uid ?? null, params.x ?? null, params.y ?? null]);
     case "page.hover":
+      if (await wantsTrusted(params)) return trustedHover(params);
       return executeActionInTab(params, hoverPage, [params.selector ?? null, params.uid ?? null, params.x ?? null, params.y ?? null]);
     case "page.drag":
+      if (await wantsTrusted(params)) return trustedDrag(params);
       return executeActionInTab(params, dragPage, [params.fromUid ?? null, params.fromSelector ?? null, params.fromX ?? null, params.fromY ?? null, params.toUid ?? null, params.toSelector ?? null, params.toX ?? null, params.toY ?? null, params.steps ?? 12]);
     case "page.upload":
       return executeActionInTab(params, uploadFiles, [params.selector ?? null, params.uid ?? null, params.files || []]);
     case "page.type":
+      if (await wantsTrusted(params)) return trustedType(params);
       return executeActionInTab(params, typeIntoPage, [params.selector ?? null, params.uid ?? null, params.text || "", Boolean(params.pressEnter)]);
     case "page.fill":
+      if (await wantsTrusted(params)) return trustedFill(params);
       return executeActionInTab(params, fillPage, [params.selector ?? null, params.uid ?? null, params.text || "", params.submit === true]);
     case "page.key":
+      if (await wantsTrusted(params)) return trustedKey(params);
       return executeActionInTab(params, pressKeyInPage, [params.key]);
     case "page.scroll":
+      if (await wantsTrusted(params)) return trustedScroll(params);
       return executeActionInTab(params, scrollPage, [params.selector ?? null, params.uid ?? null, params.deltaY ?? 0, params.deltaX ?? 0, params.steps ?? null]);
+    case "trusted.mode":
+      return setTrustedMode(params.mode);
+    case "trusted.status":
+      return trustedStatus();
     case "page.console.list":
       return executeInTab(params, listConsoleMessages, [params.clear === true]);
     case "page.network.list":
