@@ -67,7 +67,22 @@ async function attachDebugger(tabId) {
     entry.detachAt = Date.now() + TRUSTED_IDLE_DETACH_MS;
     return entry;
   }
-  await chrome.debugger.attach({ tabId }, CDP_VERSION);
+  try {
+    await chrome.debugger.attach({ tabId }, CDP_VERSION);
+  } catch (error) {
+    // Chrome occasionally rejects attach with "Cannot access a chrome-extension:// URL of
+    // different extension" right after a navigation, even when the target tab's URL is a
+    // normal page. Wait a tick, verify the tab is on a non-privileged URL, and retry once.
+    const msg = String(error?.message || error);
+    const transient = /Cannot access a chrome-extension|Cannot access contents of|No tab with id|Debugger is not attached|Another debugger|Target closed/i.test(msg);
+    if (!transient) throw error;
+    await sleep(180);
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab || (tab.url || "").startsWith("chrome://") || (tab.url || "").startsWith("chrome-extension://")) {
+      throw new Error(`Chrome can't attach the debugger to this tab (${tab?.url ?? "unknown"}). Open a normal http(s) tab and try again.`);
+    }
+    await chrome.debugger.attach({ tabId }, CDP_VERSION);
+  }
   // Seed pointer in a plausible "just left the address bar" location.
   const entry = { detachAt: Date.now() + TRUSTED_IDLE_DETACH_MS, pointer: { x: 120 + Math.random() * 200, y: 80 + Math.random() * 120 } };
   attachedTabs.set(tabId, entry);
@@ -256,9 +271,28 @@ async function trustedClick(params) {
   const resolved = await resolveTargetInTab(tab.id, params);
   const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
   await cdpMoveTo(tab.id, point.x, point.y);
-  await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse" });
+  await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse", force: 0.5 });
   await sleep(rng(45, 140));
   await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: 1, pointerType: "mouse" });
+  // Reset :focus-visible if the click landed on a focusable element. CDP-driven pointer
+  // focus can leave :focus-visible=true in Chromium, which trips heuristics that expect
+  // pointer focus to suppress the focus ring (synthetic clicks naturally land on false).
+  if (params.selector || params.uid) {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id, frameIds: [0] },
+      world: "MAIN",
+      func: (sel, uid) => {
+        const state = window.__PI_CHROME_STATE__;
+        let el = null;
+        if (uid && state && state.elements && state.elements[uid]) el = state.elements[uid];
+        else if (sel) el = document.querySelector(sel);
+        if (el && typeof el.focus === "function" && el === document.activeElement) {
+          try { el.blur(); el.focus({ preventScroll: true, focusVisible: false }); } catch {}
+        }
+      },
+      args: [params.selector ?? null, params.uid ?? null],
+    }).catch(() => undefined);
+  }
   return { trusted: true, x: point.x, y: point.y, tag: resolved.tag };
 }
 
@@ -320,7 +354,7 @@ async function trustedType(params) {
     const resolved = await resolveTargetInTab(tab.id, params);
     const point = resolved.rect ? pickInsideRect(resolved.rect) : { x: resolved.x, y: resolved.y };
     await cdpMoveTo(tab.id, point.x, point.y);
-    await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse" });
+    await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse", force: 0.5 });
     await sleep(rng(45, 110));
     await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: 1, pointerType: "mouse" });
     await sleep(rng(50, 120));
@@ -344,7 +378,7 @@ async function trustedFill(params) {
   await cdpMoveTo(tab.id, point.x, point.y);
   // Triple-click selects all in input fields.
   for (let i = 1; i <= 3; i++) {
-    await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: i, pointerType: "mouse" });
+    await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: i, pointerType: "mouse", force: 0.5 });
     await sleep(rng(20, 60));
     await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: i, pointerType: "mouse" });
     await sleep(rng(20, 60));
@@ -367,21 +401,36 @@ async function trustedScroll(params) {
   const x = resolved.rect ? resolved.rect.left + Math.min(resolved.rect.width, 800) / 2 : resolved.x;
   const y = resolved.rect ? resolved.rect.top + Math.min(resolved.rect.height, 600) / 2 : resolved.y;
   const totalY = params.deltaY || 0, totalX = params.deltaX || 0;
-  // Per-event delta cap so IntersectionObserver / scroll-driven animations get gradient samples.
-  // A trackpad inertia tick often delivers ~10-30px per frame; using ~25px keeps small-target
-  // visibility transitions detectable while not making large scrolls take forever.
-  const MAX_STEP = 25;
+  // Profile mimics a trackpad flick: short ramp-up (~15% of events), then geometric decay
+  // with a ~12% drop per event. Gives momentum tail tests something to find, and the small
+  // tail deltas (a handful of <20px events) put IntersectionObserver thresholds in range.
   const peak = Math.max(Math.abs(totalY), Math.abs(totalX));
-  // Front-loaded weights peak at ~1.5× average, so choose n so peak event stays under MAX_STEP.
-  const minN = Math.ceil(peak * 1.5 / MAX_STEP);
-  const n = Math.max(6, Math.min(200, params.steps || Math.max(minN, 12)));
-  // Front-loaded but smooth weights: w[i] = 1 + 0.5 * (1 - i/(n-1)) so the first event has
-  // weight 1.5, the last has 1.0, average ~1.25; redistribution stays predictable.
+  // Aim peak event ~22px so cumulative wheel approach to target seeds low-ratio IO samples.
+  const PEAK_TARGET = 22;
   const w = [];
-  for (let i = 0; i < n; i++) {
-    const t = i / Math.max(1, n - 1);
-    w.push(1 + 0.5 * (1 - t));
+  // Build weights for an arbitrary n, then iterate to find an n where peak * (w_peak/sum) <= PEAK_TARGET.
+  function build(n) {
+    const arr = [];
+    const peakIdx = Math.max(1, Math.floor(n * 0.15));
+    for (let i = 0; i < n; i++) {
+      if (i <= peakIdx) arr.push(0.5 + 0.5 * (i / peakIdx)); // 0.5 → 1.0
+      else arr.push(Math.pow(0.88, i - peakIdx));            // ~12% drop per step
+    }
+    return arr;
   }
+  let n = Math.max(12, params.steps || 24);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const arr = build(n);
+    const s = arr.reduce((a, b) => a + b, 0);
+    const peakStep = peak * (Math.max(...arr) / s);
+    if (peakStep <= PEAK_TARGET || n >= 240) {
+      w.length = 0;
+      w.push(...arr);
+      break;
+    }
+    n = Math.ceil(n * 1.4);
+  }
+  if (w.length === 0) w.push(...build(n));
   const sumW = w.reduce((a, b) => a + b, 0);
   for (let i = 0; i < n; i++) {
     const dy = totalY * (w[i] / sumW), dx = totalX * (w[i] / sumW);
@@ -419,7 +468,7 @@ async function trustedDrag(params) {
   const fp = from.rect ? pickInsideRect(from.rect) : { x: from.x, y: from.y };
   const tp = to.rect ? pickInsideRect(to.rect) : { x: to.x, y: to.y };
   await cdpMoveTo(tab.id, fp.x, fp.y);
-  await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: fp.x, y: fp.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse" });
+  await cdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", x: fp.x, y: fp.y, button: "left", buttons: 1, clickCount: 1, pointerType: "mouse", force: 0.5 });
   await sleep(rng(60, 140));
   const steps = params.steps || 20;
   for (let i = 1; i <= steps; i++) {
