@@ -10,8 +10,6 @@ Umbrella Pi package that lets users install a curated set of individually publis
 - [`pi-prompt-shelf`](https://www.npmjs.com/package/pi-prompt-shelf) — shelve and restore prompt drafts.
 - [`pi-caveman`](https://www.npmjs.com/package/pi-caveman) — make replies terse to save tokens.
 
-> Renamed from `tr-pi` at version 0.6.0. If you have `npm:tr-pi` installed, `pi remove npm:tr-pi` first to avoid duplicate-command conflicts.
-
 ## Operating principles
 
 1. Each extension is its own independently published npm package.
@@ -40,7 +38,7 @@ After the umbrella is loaded, run `/install` in any Pi session. A toggle dialog 
 
 1. Pick scope: **Global** (`~/.pi/agent/settings.json`) or **Project** (`.pi/settings.json`).
 2. All packages start selected. Use ↑/↓ to move and Space to toggle any package between `install` / `skip`.
-3. Press Enter to install the selected packages, or Esc to cancel. For each `install` entry, pi first removes existing installs that would register conflicting extensions/commands (for example an old local `pi-chrome` checkout or legacy `trifecta-footer`), then shells out to `pi install [-l] npm:<name>`.
+3. Press Enter to install the selected packages, or Esc to cancel. For each `install` entry, pi first removes existing installs that would register conflicting extensions/commands (for example an old local `pi-chrome` checkout), then shells out to `pi install [-l] npm:<name>`.
 4. If anything was installed, `/install` automatically reloads Pi so the new extensions are available immediately.
 
 ## Extending the picker
@@ -57,8 +55,6 @@ The list of installable packages is declared in `package.json` under the `"pi-pa
   }
 }
 ```
-
-For backward compatibility the legacy `"tr-pi"` key is also read if `"pi-packs"` is absent.
 
 ## How this package works
 

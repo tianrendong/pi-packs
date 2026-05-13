@@ -11,8 +11,6 @@
 
 ![pi-bar screenshot, three rows showing green, yellow, and red context usage](https://cdn.jsdelivr.net/npm/pi-bar@0.3.0/assets/screenshot.png)
 
-> Renamed from `trifecta-footer` at 0.3.0. If you previously installed `trifecta-footer`, run `pi remove npm:trifecta-footer && pi install npm:pi-bar`.
-
 ## Why use it?
 
 - **See the active model at a glance** — catch accidental model switches before an expensive or sensitive task starts.

@@ -28,20 +28,13 @@ interface InstalledPackage {
 	packageName?: string;
 }
 
-const BUILTIN_CONFLICTS: Record<string, string[]> = {
-	// pi-bar was renamed from trifecta-footer; both register the same footer/status UI.
-	"pi-bar": ["trifecta-footer"],
-	// tr-pi was the pre-rename umbrella and loaded bundled extensions directly.
-	"pi-qq": ["tr-pi"],
-	"pi-chrome": ["tr-pi"],
-	"pi-linter": ["tr-pi"],
-};
+const BUILTIN_CONFLICTS: Record<string, string[]> = {};
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function loadPackages(): PackageEntry[] {
 	const rootPkgPath = join(__dirname, "..", "package.json");
-	let pkg: { dependencies?: Record<string, string>; "pi-packs"?: { installable?: Array<{ name?: string; description?: string; conflicts?: string[] }> }; "tr-pi"?: { installable?: Array<{ name?: string; description?: string; conflicts?: string[] }> } } = {};
+	let pkg: { dependencies?: Record<string, string>; "pi-packs"?: { installable?: Array<{ name?: string; description?: string; conflicts?: string[] }> } } = {};
 	try {
 		pkg = JSON.parse(readFileSync(rootPkgPath, "utf8"));
 	} catch {
@@ -49,9 +42,8 @@ function loadPackages(): PackageEntry[] {
 	}
 	// Preferred source: explicit `pi-packs.installable` array. This decouples "things /install
 	// offers" from "things the umbrella depends on", so the umbrella can advertise installable
-	// packages that aren't bundled or required at install time. Legacy `tr-pi.installable` key
-	// is read as a fallback for installs lingering from before the pi-packs rename.
-	const declared = pkg["pi-packs"]?.installable ?? pkg["tr-pi"]?.installable;
+	// packages that aren't bundled or required at install time.
+	const declared = pkg["pi-packs"]?.installable;
 	if (Array.isArray(declared) && declared.length > 0) {
 		return declared
 			.filter((entry): entry is { name: string; description?: string } => typeof entry?.name === "string")

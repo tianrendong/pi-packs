@@ -1,6 +1,6 @@
 {
   "name": "pi-packs",
-  "version": "0.7.9",
+  "version": "0.7.10",
   "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman).",
   "type": "module",
   "keywords": [
@@ -43,7 +43,7 @@
       { "name": "pi-chrome", "description": "Drive your existing Chrome profile." },
       { "name": "pi-intercom", "description": "Message other local Pi sessions." },
       { "name": "pi-linter", "description": "Lint prompt drafts before sending." },
-      { "name": "pi-bar", "description": "Show model, thinking, and context in the footer.", "conflicts": ["trifecta-footer"] },
+      { "name": "pi-bar", "description": "Show model, thinking, and context in the footer." },
       { "name": "pi-prompt-shelf", "description": "Shelve and restore prompt drafts." },
       { "name": "pi-caveman", "description": "Make replies terse to save tokens." }
     ]
