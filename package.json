@@ -34,9 +34,6 @@
   "scripts": {
     "pack:dry-run": "npm pack --dry-run"
   },
-  "workspaces": [
-    "packages/*"
-  ],
   "pi-packs": {
     "installable": [
       { "name": "pi-qq", "description": "Ask side questions in an overlay." },
