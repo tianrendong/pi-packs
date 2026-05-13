@@ -31,8 +31,8 @@ pi install npm:pi-linter
 Or develop locally:
 
 ```bash
-git clone https://github.com/tianrendong/pi-packages
-cd pi-packages
+git clone https://github.com/tianrendong/pi-packs
+cd pi-packs
 npm install
 pi install ./packages/pi-linter
 ```

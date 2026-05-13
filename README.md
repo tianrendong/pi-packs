@@ -29,7 +29,7 @@ Or locally while developing:
 
 ```bash
 npm install
-pi install /Users/tianrendong/pi-packages
+pi install /Users/tianrendong/pi-packs
 ```
 
 ### `/install` — interactive picker inside Pi

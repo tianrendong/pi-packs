@@ -1,6 +1,6 @@
 {
   "name": "pi-packs",
-  "version": "0.7.10",
+  "version": "0.7.11",
   "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman).",
   "type": "module",
   "keywords": [
@@ -18,12 +18,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/tianrendong/pi-packages.git"
+    "url": "git+ssh://git@github.com/tianrendong/pi-packs.git"
   },
   "bugs": {
-    "url": "https://github.com/tianrendong/pi-packages/issues"
+    "url": "https://github.com/tianrendong/pi-packs/issues"
   },
-  "homepage": "https://github.com/tianrendong/pi-packages#readme",
+  "homepage": "https://github.com/tianrendong/pi-packs#readme",
   "publishConfig": {
     "access": "public"
   },
