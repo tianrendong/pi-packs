@@ -65,24 +65,25 @@ pi-chrome v<version>
 ✓ Companion Chrome extension responding (ID: <chrome-extension-id>, ext v<version>)
 ```
 
-## Trusted-input mode (CDP)
+## Click modes
 
-By default, `chrome_*` clicks and keystrokes are **synthetic** DOM events (`event.isTrusted === false`). They drive React/Vue/Angular state correctly but **do not** satisfy Chrome's user-activation gates: clipboard write, fullscreen, file picker, and autoplay all need a real user gesture.
+pi-chrome can drive Chrome two ways:
 
-pi-chrome can optionally route input through `chrome.debugger` (CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`) so each event arrives as `isTrusted=true`, satisfies user-activation, and bypasses site bot-detection that filters synthetic events. The tradeoff: Chrome pins a *"Pi Chrome Connector started debugging this browser"* banner to the top of any debugged tab.
+- **Quiet clicks** — fast and unobtrusive. They work on most sites, but some pages (sign-in flows, copy-to-clipboard buttons, file pickers, autoplay videos, fullscreen, paywalls) ignore them because they don't look like a real human action.
+- **Real-looking clicks** — indistinguishable from a person clicking. They unlock the cases above, but Chrome shows a *"Pi Chrome Connector started debugging this browser"* banner at the top of every tab pi-chrome touches while it's working.
 
-Usage:
+Pick a mode with `/chrome-trusted`:
 
 ```text
-/chrome-trusted on       # all chrome_* tools dispatch via CDP
-/chrome-trusted off      # synthetic events only (default)
-/chrome-trusted auto     # CDP only when a tool passes trusted=true
-/chrome-trusted status   # show current mode and attached tabs
+/chrome-trusted auto     # default; quiet by default, real-looking only when needed
+/chrome-trusted off      # always quiet, no banner ever
+/chrome-trusted on       # always real-looking, banner stays up the whole session
+/chrome-trusted status   # show the current mode
 ```
 
-For a single call, pass `trusted: true` on `chrome_click`, `chrome_type`, `chrome_fill`, `chrome_key`, `chrome_hover`, `chrome_drag`, or `chrome_scroll`. The per-call value always wins over the session toggle.
+For a one-off call, pass `trusted: true` (or `false`) on `chrome_click`, `chrome_type`, `chrome_fill`, `chrome_key`, `chrome_hover`, `chrome_drag`, or `chrome_scroll`. The per-call value wins over the global mode.
 
-First time you upgrade to a pi-chrome that uses trusted input, Chrome will prompt to re-approve the extension's new `debugger` permission — do that once in `chrome://extensions`.
+First time you update pi-chrome to a version that supports real-looking clicks, Chrome will ask you to re-approve the extension. Open `chrome://extensions` and accept the new permission once.
 
 ## Background mode
 

@@ -415,8 +415,8 @@ export default function (pi: ExtensionAPI): void {
 		ctx.ui.setStatus("chrome", `Chrome bridge :${DEFAULT_PORT}`);
 		ctx.ui.notify(
 			status.mode === "client"
-				? `Chrome profile bridge connected to shared bridge at ${bridge.url}.`
-				: `Chrome profile bridge listening at ${bridge.url}. Run /chrome-onboard to load the bundled browser extension in your normal Chrome profile.`,
+				? `pi-chrome connected (sharing the Chrome connection an earlier pi session opened).`
+				: `pi-chrome is ready and waiting for the Chrome companion to connect. Run /chrome-onboard to install it.`,
 			"info",
 		);
 	});
@@ -449,12 +449,13 @@ Usage rules:
 
 	pi.registerCommand("chrome-doctor", {
 		description:
-			"Check Chrome bridge connectivity and capability tier. Probes the local bridge, the companion Chrome extension, MAIN-world evaluation, and CDP availability, and prints one-line fixes for common failures.",
+			"Run a quick health check on pi-chrome. Shows whether Chrome is connected, whether the companion extension is up to date, which click mode is active, and how to fix anything that's wrong.",
 		handler: async (_args, ctx) => {
-			ctx.ui.notify("Performing Chrome bridge health check", "info");
+			ctx.ui.notify("Checking pi-chrome…", "info");
 			const lines: string[] = [`pi-chrome v${PI_CHROME_VERSION}`];
 			const status = bridge.status();
-			lines.push(`• Local bridge: mode=${status.mode}, url=${status.url}`);
+			const roleLabel = status.mode === "client" ? "sharing another pi session's connection" : "running the Chrome connection for this machine";
+			lines.push(`• This pi session is ${roleLabel}.`);
 			let extensionAlive = false;
 			let versionMismatch = false;
 			try {
@@ -469,44 +470,44 @@ Usage rules:
 				if (version.extensionVersion && version.extensionVersion !== PI_CHROME_VERSION) {
 					versionMismatch = true;
 					lines.push(
-						`✗ EXTENSION VERSION MISMATCH: companion extension is v${version.extensionVersion}, but pi-chrome is v${PI_CHROME_VERSION}.`,
-						`  All chrome_* tools will run with the OLD extension code until this is fixed.`,
-						`  Fix: open chrome://extensions and click reload on "Pi Chrome Connector".`,
-						`  (Future version drifts will self-heal: the extension now polls pi-chrome's expected version and reloads itself.)`,
+						`✗ The Chrome companion extension is on an old version (${version.extensionVersion}); this pi-chrome is ${PI_CHROME_VERSION}.`,
+						`  Every Chrome action will run with the old code until you reload the extension.`,
+						`  Fix: open chrome://extensions and click the refresh icon on 'Pi Chrome Connector'.`,
+						`  (After this one-time fix, future updates reload automatically.)`,
 					);
 				} else {
-					lines.push(`✓ Companion Chrome extension responding (ID: ${version.extensionId ?? "?"}, ext v${version.extensionVersion ?? "?"}, latency ${latencyMs}ms)`);
+					lines.push(`✓ Chrome is connected (companion extension v${version.extensionVersion ?? "?"}, responded in ${latencyMs}ms).`);
 				}
 			} catch (error) {
 				const message = (error as Error).message;
-				lines.push(`✗ Companion Chrome extension not responding: ${message}`);
+				lines.push(`✗ Chrome isn't responding: ${message}`);
 				if (message.includes("older pi-chrome without multi-session")) {
-					lines.push("  Fix: restart the Pi session that owns the bridge (it was started on an older pi-chrome).");
+					lines.push("  Fix: quit and restart the pi session that first opened the Chrome connection (it was on an older pi-chrome).");
 				} else {
-					lines.push("  Fix: run /chrome-onboard, then load the bundled browser-extension folder in chrome://extensions and keep that Chrome window open.");
+					lines.push("  Fix: run /chrome-onboard to install the Chrome companion extension, then keep that Chrome window open.");
 				}
 			}
 
 			if (extensionAlive && !versionMismatch) {
-				// MAIN-world evaluate probe.
+				// Sanity-check that pi-chrome can actually run code in the active tab.
 				try {
 					const value = await bridge.send("page.evaluate", { expression: "1+1", awaitPromise: true, foreground: false }, 10_000);
-					if (value === 2) lines.push(`✓ chrome_evaluate("1+1") = 2`);
-					else lines.push(`⚠ chrome_evaluate("1+1") returned ${JSON.stringify(value)} (expected 2). The current tab may have a restrictive CSP or be a chrome:// URL.`);
+					if (value === 2) lines.push(`✓ pi-chrome can run code in the active Chrome tab.`);
+					else lines.push(`⚠ pi-chrome ran code in the active tab but got an unexpected result (${JSON.stringify(value)}). The current tab may be locked-down (a Chrome internal page or a strict site).`);
 				} catch (error) {
-					lines.push(`✗ chrome_evaluate failed: ${(error as Error).message}`);
+					lines.push(`✗ pi-chrome can't run code in the active tab: ${(error as Error).message}`);
 				}
 
-				// Capability probe via MAIN-world helper.
+				// Surface obvious site-side automation flags so the user knows why a site might block pi.
 				try {
 					const probe = (await bridge.send("page.probe", { foreground: false }, 10_000)) as Record<string, unknown>;
-					if (probe && probe.arithmetic === 2) lines.push(`✓ MAIN-world helper injection works (location=${hostnameOf(String(probe.location))})`);
-					if (probe && probe.webdriver) lines.push(`⚠ navigator.webdriver=true on current tab — site fingerprinting may flag automation.`);
+					if (probe && probe.arithmetic === 2) lines.push(`✓ The active tab is ${hostnameOf(String(probe.location))} and accepts pi-chrome's commands.`);
+					if (probe && probe.webdriver) lines.push(`⚠ Your Chrome is reporting itself as automated to websites. Some sites use this signal to block sign-ins or bot checks.`);
 				} catch (error) {
-					lines.push(`⚠ page.probe failed: ${(error as Error).message}`);
+					lines.push(`⚠ Couldn't inspect the active tab: ${(error as Error).message}`);
 				}
 			} else if (versionMismatch) {
-				lines.push(`… Skipped MAIN-world capability checks because the loaded extension is stale.`);
+				lines.push(`… Skipped the remaining checks until you reload the Chrome extension.`);
 			}
 
 			// Real-input mode probe (plain English for the user).
@@ -652,11 +653,11 @@ Usage rules:
 
 	pi.registerCommand("chrome-background", {
 		description:
-			"Toggle silent/background mode for chrome_* tools. Background ON: chrome_* tools act silently — your editor/terminal keeps focus, Chrome does not pop up, your workflow is not interrupted. Background OFF (default): Chrome focuses and activates the target tab so you can watch the agent work, useful for demos, pair-driving, and debugging — tradeoff: Chrome pops up and steals focus. Pass `on` / `off` to set explicitly, or no argument to toggle.",
+			"Choose whether Chrome jumps to the front when pi-chrome acts. ON: pi-chrome works silently and Chrome stays in the background — your editor or terminal keeps focus. OFF (default): Chrome pops up and switches to the right tab so you can watch what pi-chrome is doing. Pass `on` / `off`, or run with no argument to flip it.",
 		getArgumentCompletions: (prefix) => {
 			const items = [
-				{ value: "on", label: "on", description: "Run chrome_* actions silently without focusing Chrome" },
-				{ value: "off", label: "off", description: "Bring Chrome to the foreground for chrome_* actions (default)" },
+				{ value: "on", label: "on", description: "Work silently. Chrome stays in the background. Your editor keeps focus." },
+				{ value: "off", label: "off", description: "Bring Chrome to the front so you can watch (default)." },
 			];
 			const lowered = prefix.toLowerCase();
 			const matches = items.filter((item) => item.value.startsWith(lowered));
@@ -669,23 +670,23 @@ Usage rules:
 			else backgroundDefault = !backgroundDefault;
 			ctx.ui.notify(
 				backgroundDefault
-					? "Chrome background mode ON. chrome_* tools will run silently. Your current app keeps focus."
-					: "Chrome background mode OFF. chrome_* tools will focus Chrome and activate the target tab so you can watch the agent work.",
+					? "Quiet mode on. pi-chrome will work in the background; Chrome won't steal focus."
+					: "Watch mode on. Chrome will pop to the front and switch tabs so you can see what pi-chrome is doing.",
 				"info",
 			);
 		},
 	});
 
 	pi.registerCommand("chrome-onboard", {
-		description: "Guide Chrome extension setup for the existing-profile bridge",
+		description: "Walk through installing the Chrome companion extension that pi-chrome needs to control your browser.",
 		handler: async (_args, ctx) => {
 			const extensionPath = browserExtensionPath();
 			const proceed = await ctx.ui.confirm(
-				"Chrome bridge setup",
-				`This will open chrome://extensions and reveal the extension folder in Finder.\n\nAfter the windows open: enable Developer mode → Load unpacked → select:\n${extensionPath}\n\nPress Enter to continue, or Esc to cancel.`,
+				"Install the pi-chrome Chrome extension?",
+				`This opens Chrome's extensions page and reveals the folder pi-chrome needs you to load.\n\nWhen the windows open, in Chrome:\n  1. Turn on 'Developer mode' (top-right toggle).\n  2. Click 'Load unpacked' and choose the folder that just opened in Finder, or paste this path:\n     ${extensionPath}\n\nPress Enter to continue, or Esc to cancel.`,
 			);
 			if (!proceed) {
-				ctx.ui.notify("Chrome bridge setup cancelled", "info");
+				ctx.ui.notify("Cancelled. You can run /chrome-onboard again whenever you're ready.", "info");
 				return;
 			}
 			if (process.platform === "darwin") {
@@ -694,7 +695,7 @@ Usage rules:
 				await pi.exec("sh", ["-lc", `printf %s ${JSON.stringify(extensionPath)} | pbcopy`], { cwd: workspaceCwd(ctx), timeout: 5_000 }).catch(() => undefined);
 			}
 			ctx.ui.notify(
-				"Chrome bridge setup opened. The extension path has been copied to your clipboard. After loading it, run /chrome-doctor.",
+				"Chrome and Finder should be open. The extension folder path is on your clipboard. After you click 'Load unpacked' and pick it, run /chrome-doctor to confirm everything is connected.",
 				"info",
 			);
 		},
