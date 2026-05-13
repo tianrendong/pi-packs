@@ -11,9 +11,9 @@ Multiple Pi sessions can use Chrome at the same time. The first Pi session start
 ## Why try it?
 
 - **Uses your existing Chrome profile** — works with the Chrome windows/tabs you are already using, including logged-in GitHub, admin dashboards, local apps, and internal tools.
-- **Watch your authenticated Chrome work** — by default, `chrome_*` tool calls focus Chrome and activate the target tab so you can see the agent inspect, navigate, click, and type in real time. Switch to silent/background mode for the whole session with `/chrome-background`, or pass `background: true` on a single tool call when you want quiet.
+- **Watch your authenticated Chrome work** — by default, `chrome_*` tool calls focus Chrome and activate the target tab so you can see the agent inspect, navigate, click, and type in real time. Switch to silent/background mode for the whole session with `/chrome settings background`, or pass `background: true` on a single tool call when you want quiet.
 - **Full browser automation toolkit for Pi** — list/create/activate/close tabs, snapshot pages with usable CSS selectors, navigate, evaluate JavaScript, click, type, press keys, wait for page state, and capture screenshots.
-- **Built-in setup and agent guidance** — `/chrome-onboard` walks users through installing the companion extension, `/chrome-doctor` checks connectivity and version drift, screenshots save to disk, and the prompt primer tells agents to inspect with `chrome_snapshot` before acting and avoid destructive actions unless explicitly requested.
+- **Built-in setup and agent guidance** — `/chrome onboard` walks users through installing the companion extension, `/chrome doctor` checks connectivity and version drift, screenshots save to disk, and the prompt primer tells agents to inspect with `chrome_snapshot` before acting and avoid destructive actions unless explicitly requested.
 
 ## Install
 
@@ -29,14 +29,14 @@ pi install ./pi-chrome
 
 ### Why an unpacked Chrome extension?
 
-`pi-chrome` cannot ship through the Chrome Web Store: a Web Store extension is not allowed to talk to a local bridge controlled by another tool. Instead it ships as a small, MIT-licensed unpacked extension in `extensions/chrome-profile-bridge/browser-extension/` — read the source before loading. `/chrome-doctor` reports the loaded extension version and warns when it drifts from the installed `pi-chrome`.
+`pi-chrome` cannot ship through the Chrome Web Store: a Web Store extension is not allowed to talk to a local bridge controlled by another tool. Instead it ships as a small, MIT-licensed unpacked extension in `extensions/chrome-profile-bridge/browser-extension/` — read the source before loading. `/chrome doctor` reports the loaded extension version and warns when it drifts from the installed `pi-chrome`.
 
 ## First-time setup
 
 In Pi, run:
 
 ```text
-/chrome-onboard
+/chrome onboard
 ```
 
 Pi first shows setup instructions and waits for confirmation. Press Enter to continue. On macOS it will:
@@ -53,7 +53,7 @@ Then in Chrome:
 4. Return to Pi and run:
 
 ```text
-/chrome-doctor
+/chrome doctor
 ```
 
 Expected output:
@@ -72,13 +72,13 @@ pi-chrome can drive Chrome two ways:
 - **Quiet clicks** — fast and unobtrusive. They work on most sites, but some pages (sign-in flows, copy-to-clipboard buttons, file pickers, autoplay videos, fullscreen, paywalls) ignore them because they don't look like a real human action.
 - **Real-looking clicks** — indistinguishable from a person clicking. They unlock the cases above, but Chrome shows a *"Pi Chrome Connector started debugging this browser"* banner at the top of every tab pi-chrome touches while it's working.
 
-Pick a mode with `/chrome-trusted`:
+Pick a mode with `/chrome settings trusted`:
 
 ```text
-/chrome-trusted auto     # default; quiet by default, real-looking only when needed
-/chrome-trusted off      # always quiet, no banner ever
-/chrome-trusted on       # always real-looking, banner stays up the whole session
-/chrome-trusted status   # show the current mode
+/chrome settings trusted auto     # default; quiet by default, real-looking only when needed
+/chrome settings trusted off      # always quiet, no banner ever
+/chrome settings trusted on       # always real-looking, banner stays up the whole session
+/chrome settings trusted status   # show the current mode
 ```
 
 For a one-off call, pass `trusted: true` (or `false`) on `chrome_click`, `chrome_type`, `chrome_fill`, `chrome_key`, `chrome_hover`, `chrome_drag`, or `chrome_scroll`. The per-call value wins over the global mode.
@@ -92,9 +92,9 @@ By default, `chrome_*` tools focus Chrome and activate the target tab so you can
 When you want quiet (planner / audit / worker sessions running alongside your editor), turn background mode on for the whole Pi session:
 
 ```text
-/chrome-background          # toggle
-/chrome-background on       # explicit
-/chrome-background off      # explicit
+/chrome settings background          # toggle
+/chrome settings background on       # explicit
+/chrome settings background off      # explicit
 ```
 
 For a single tool call, the agent can pass `background: true` directly. The per-call value always wins over the session toggle.
@@ -137,9 +137,9 @@ Screenshots save under `.pi/chrome-screenshots/` by default, which composes nice
 
 ## Diagnostics
 
-- `/chrome-doctor` — single command that checks connectivity and reports the loaded Chrome extension ID + version, plus a one-line fix for common setup failures (extension not loaded, bridge owner stale after `pi update`, version mismatch between pi-chrome and the loaded Chrome extension).
+- `/chrome doctor` — single command that checks connectivity and reports the loaded Chrome extension ID + version, plus a one-line fix for common setup failures (extension not loaded, bridge owner stale after `pi update`, version mismatch between pi-chrome and the loaded Chrome extension).
 
-If the Chrome extension you have loaded is older than `pi-chrome` on disk, `/chrome-doctor` will tell you to reload it from `chrome://extensions`.
+If the Chrome extension you have loaded is older than `pi-chrome` on disk, `/chrome doctor` will tell you to reload it from `chrome://extensions`.
 
 ## Compose with
 

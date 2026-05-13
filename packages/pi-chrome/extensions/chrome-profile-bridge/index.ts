@@ -233,7 +233,7 @@ class ChromeProfileBridge {
 				this.queue = this.queue.filter((queued) => queued.id !== id);
 				rejectCommand(
 					new Error(
-						`Timed out waiting for Chrome extension after ${timeoutMs}ms. Run /chrome-onboard, then load the bundled browser-extension folder in your normal Chrome profile.`,
+						`Timed out waiting for Chrome extension after ${timeoutMs}ms. Run /chrome onboard, then load the bundled browser-extension folder in your normal Chrome profile.`,
 					),
 				);
 			}, timeoutMs);
@@ -416,7 +416,7 @@ export default function (pi: ExtensionAPI): void {
 		ctx.ui.notify(
 			status.mode === "client"
 				? `pi-chrome connected (sharing the Chrome connection an earlier pi session opened).`
-				: `pi-chrome is ready and waiting for the Chrome companion to connect. Run /chrome-onboard to install it.`,
+				: `pi-chrome is ready and waiting for the Chrome companion to connect. Run /chrome onboard to install it.`,
 			"info",
 		);
 	});
@@ -440,17 +440,15 @@ Usage rules:
 2. \`includeSnapshot=true\` on click/type/fill to verify in one round trip.
 3. If \`chrome_evaluate\` returns null when you expected a value, the expression evaluated to null/undefined in the page; surface the value via \`JSON.stringify\` to confirm.
 4. \`chrome_navigate\` supports an optional \`initScript\` that runs at document_start in MAIN world for the next navigation (good for seeding localStorage or stubbing Date.now).
-5. By default chrome_* tools focus Chrome so the user can watch; pass \`background=true\` or run /chrome-background to silence the whole session.
+5. By default chrome_* tools focus Chrome so the user can watch; pass \`background=true\` or run /chrome settings background to silence the whole session.
 6. If you hit an autoplay/clipboard/file-picker gate, tell the user; this bridge cannot satisfy it.
-7. Run /chrome-doctor when in doubt about connectivity or capabilities.
+7. Run /chrome doctor when in doubt about connectivity or capabilities.
 </chrome-profile-bridge>`;
 		return { systemPrompt: event.systemPrompt + primer };
 	});
 
-	pi.registerCommand("chrome-doctor", {
-		description:
-			"Run a quick health check on pi-chrome. Shows whether Chrome is connected, whether the companion extension is up to date, which click mode is active, and how to fix anything that's wrong.",
-		handler: async (_args, ctx) => {
+	// Shared handlers, dispatched by the unified /chrome command below.
+	const doctorHandler = async (ctx: ExtensionContext) => {
 			ctx.ui.notify("Checking pi-chrome…", "info");
 			const lines: string[] = [`pi-chrome v${PI_CHROME_VERSION}`];
 			const status = bridge.status();
@@ -484,7 +482,7 @@ Usage rules:
 				if (message.includes("older pi-chrome without multi-session")) {
 					lines.push("  Fix: quit and restart the pi session that first opened the Chrome connection (it was on an older pi-chrome).");
 				} else {
-					lines.push("  Fix: run /chrome-onboard to install the Chrome companion extension, then keep that Chrome window open.");
+					lines.push("  Fix: run /chrome onboard to install the Chrome companion extension, then keep that Chrome window open.");
 				}
 			}
 
@@ -525,7 +523,7 @@ Usage rules:
 								? " Clicks/keys are quiet by default; if a site rejects a quiet click, pi-chrome retries it once with a real-looking click. The Chrome banner shows only when that retry happens."
 								: status.mode === "on"
 									? " Every click and keystroke uses a real-looking event. The Chrome banner stays up on every tab pi-chrome touches."
-									: " All clicks are quiet, no banner. Some sites (sign-ins, copy buttons, file pickers, paywalls) may silently ignore them. Switch to /chrome-trusted auto if a site isn’t responding.";
+									: " All clicks are quiet, no banner. Some sites (sign-ins, copy buttons, file pickers, paywalls) may silently ignore them. Switch to /chrome settings trusted auto if a site isn’t responding.";
 						const label = status.mode === "auto" ? "auto (smart upgrade)" : status.mode === "on" ? "on (always real-looking)" : "off (always quiet)";
 						lines.push(`✓ Click mode: ${label}${banner}.${note}`);
 					} else {
@@ -536,25 +534,10 @@ Usage rules:
 				}
 			}
 
-			ctx.ui.notify(lines.join("\n"), "info");
-		},
-	});
+		ctx.ui.notify(lines.join("\n"), "info");
+	};
 
-	pi.registerCommand("chrome-trusted", {
-		description:
-			"Choose how realistically pi-chrome should drive Chrome. Real-looking clicks/keys unlock things like copy-to-clipboard buttons, file pickers, and sign-in pages, but show a banner at the top of every Chrome window saying it's being driven by pi-chrome. Three modes:\n  auto (default) — quiet by default; auto-upgrade when a site blocks the quiet click.\n  off — always quiet, no banner; some sites won't accept these clicks.\n  on — always real-looking, banner stays up the whole session.\n  status — show the current mode.",
-		getArgumentCompletions: (prefix) => {
-			const items = [
-				{ value: "auto", label: "auto", description: "Default. Quiet clicks; upgrade to real ones only when a site rejects them." },
-				{ value: "off", label: "off", description: "Always quiet. No banner. Some sites won't accept the clicks." },
-				{ value: "on", label: "on", description: "Always real-looking clicks. Yellow banner stays up. Best for stubborn sites." },
-				{ value: "status", label: "status", description: "Show the current mode." },
-			];
-			const lowered = prefix.toLowerCase();
-			const matches = items.filter((item) => item.value.startsWith(lowered));
-			return matches.length > 0 ? matches : null;
-		},
-		handler: async (args, ctx) => {
+	const trustedHandler = async (ctx: ExtensionContext, args: string) => {
 			const rawArg = (args || "").trim().toLowerCase();
 
 			// Resolve current status once for both branches (interactive picker + direct args).
@@ -612,7 +595,7 @@ Usage rules:
 			}
 
 			if (!["on", "off", "auto"].includes(target)) {
-				ctx.ui.notify(`Unknown choice '${rawArg}'. Pick one of: auto | off | on | status, or just run /chrome-trusted with no argument.`, "warning");
+				ctx.ui.notify(`Unknown choice '${rawArg}'. Pick one of: auto | off | on | status, or run /chrome settings trusted with no argument.`, "warning");
 				return;
 			}
 
@@ -646,58 +629,129 @@ Usage rules:
 					ctx.ui.notify("Auto. Clicks stay quiet by default; pi-chrome will only switch to real-looking clicks when a site rejects a quiet one. The Chrome banner will appear only when that retry happens.", "info");
 				}
 			} catch (error) {
-				ctx.ui.notify(`Couldn't switch mode: ${(error as Error).message}`, "warning");
-			}
-		},
-	});
+			ctx.ui.notify(`Couldn't switch mode: ${(error as Error).message}`, "warning");
+		}
+	};
 
-	pi.registerCommand("chrome-background", {
+	const backgroundHandler = async (ctx: ExtensionContext, args: string) => {
+		const arg = (args || "").trim().toLowerCase();
+		if (arg === "on" || arg === "true" || arg === "1") backgroundDefault = true;
+		else if (arg === "off" || arg === "false" || arg === "0") backgroundDefault = false;
+		else backgroundDefault = !backgroundDefault;
+		ctx.ui.notify(
+			backgroundDefault
+				? "Quiet mode on. pi-chrome will work in the background; Chrome won't steal focus."
+				: "Watch mode on. Chrome will pop to the front and switch tabs so you can see what pi-chrome is doing.",
+			"info",
+		);
+	};
+
+	const onboardHandler = async (ctx: ExtensionContext) => {
+		const extensionPath = browserExtensionPath();
+		const proceed = await ctx.ui.confirm(
+			"Install the pi-chrome Chrome extension?",
+			`This opens Chrome's extensions page and reveals the folder pi-chrome needs you to load.\n\nWhen the windows open, in Chrome:\n  1. Turn on 'Developer mode' (top-right toggle).\n  2. Click 'Load unpacked' and choose the folder that just opened in Finder, or paste this path:\n     ${extensionPath}\n\nPress Enter to continue, or Esc to cancel.`,
+		);
+		if (!proceed) {
+			ctx.ui.notify("Cancelled. You can run /chrome onboard again whenever you're ready.", "info");
+			return;
+		}
+		if (process.platform === "darwin") {
+			await pi.exec("open", ["-a", "Google Chrome", "chrome://extensions"], { cwd: workspaceCwd(ctx), timeout: 5_000 }).catch(() => undefined);
+			await pi.exec("open", ["-R", extensionPath], { cwd: workspaceCwd(ctx), timeout: 5_000 }).catch(() => undefined);
+			await pi.exec("sh", ["-lc", `printf %s ${JSON.stringify(extensionPath)} | pbcopy`], { cwd: workspaceCwd(ctx), timeout: 5_000 }).catch(() => undefined);
+		}
+		ctx.ui.notify(
+			"Chrome and Finder should be open. The extension folder path is on your clipboard. After you click 'Load unpacked' and pick it, run /chrome doctor to confirm everything is connected.",
+			"info",
+		);
+	};
+
+	const settingsHandler = async (ctx: ExtensionContext, rest: string[]) => {
+		if (rest.length === 0) {
+			const picked = await ctx.ui.select(
+				"pi-chrome settings — what would you like to change?",
+				[
+					"background — should Chrome pop to the front when pi-chrome acts, or work silently?",
+					"trusted — how realistic should pi-chrome's clicks and keystrokes be?",
+				],
+			);
+			if (!picked) return;
+			if (picked.startsWith("background")) return backgroundHandler(ctx, "");
+			if (picked.startsWith("trusted")) return trustedHandler(ctx, "");
+			return;
+		}
+		const [head, ...sub] = rest;
+		const subArgs = sub.join(" ");
+		switch (head) {
+			case "background": return backgroundHandler(ctx, subArgs);
+			case "trusted": return trustedHandler(ctx, subArgs);
+			default:
+				ctx.ui.notify(`Unknown setting '${head}'. Try: /chrome settings background | trusted.`, "warning");
+		}
+	};
+
+	pi.registerCommand("chrome", {
 		description:
-			"Choose whether Chrome jumps to the front when pi-chrome acts. ON: pi-chrome works silently and Chrome stays in the background — your editor or terminal keeps focus. OFF (default): Chrome pops up and switches to the right tab so you can watch what pi-chrome is doing. Pass `on` / `off`, or run with no argument to flip it.",
+			"All pi-chrome controls in one place. Subcommands:\n  /chrome doctor — quick health check.\n  /chrome onboard — install the Chrome companion extension.\n  /chrome settings — change how pi-chrome behaves (background mode, click realism).\nRun with no arguments for an interactive picker.",
 		getArgumentCompletions: (prefix) => {
-			const items = [
-				{ value: "on", label: "on", description: "Work silently. Chrome stays in the background. Your editor keeps focus." },
-				{ value: "off", label: "off", description: "Bring Chrome to the front so you can watch (default)." },
+			const rawTokens = prefix.split(/\s+/);
+			const last = (rawTokens[rawTokens.length - 1] ?? "").toLowerCase();
+			const path = rawTokens.slice(0, -1).filter(Boolean).map((t) => t.toLowerCase());
+
+			const TOP = [
+				{ value: "doctor", description: "Quick health check. Tells you if Chrome is connected and what's wrong if it isn't." },
+				{ value: "onboard", description: "Install the Chrome companion extension (first-time setup)." },
+				{ value: "settings", description: "Change pi-chrome behaviour: background mode, click realism." },
 			];
-			const lowered = prefix.toLowerCase();
-			const matches = items.filter((item) => item.value.startsWith(lowered));
-			return matches.length > 0 ? matches : null;
+			const SETTINGS = [
+				{ value: "background", description: "Should Chrome pop to the front when pi-chrome acts, or work silently?" },
+				{ value: "trusted", description: "How realistic should pi-chrome's clicks and keystrokes be?" },
+			];
+			const BG = [
+				{ value: "on", description: "Work silently. Chrome stays in the background. Your editor keeps focus." },
+				{ value: "off", description: "Bring Chrome to the front so you can watch (default)." },
+			];
+			const TRUSTED = [
+				{ value: "auto", description: "Default. Quiet clicks; upgrade to real ones only when a site rejects them." },
+				{ value: "off", description: "Always quiet. No banner. Some sites won't accept the clicks." },
+				{ value: "on", description: "Always real-looking clicks. Banner stays up. Best for stubborn sites." },
+				{ value: "status", description: "Show the current click mode." },
+			];
+
+			let pool: Array<{ value: string; description: string }> | null = null;
+			if (path.length === 0) pool = TOP;
+			else if (path[0] === "settings" && path.length === 1) pool = SETTINGS;
+			else if (path[0] === "settings" && path[1] === "background" && path.length === 2) pool = BG;
+			else if (path[0] === "settings" && path[1] === "trusted" && path.length === 2) pool = TRUSTED;
+			if (!pool) return null;
+
+			const items = pool.map((p) => ({ value: p.value, label: p.value, description: p.description }));
+			const filtered = items.filter((i) => i.value.startsWith(last));
+			return filtered.length > 0 ? filtered : null;
 		},
 		handler: async (args, ctx) => {
-			const arg = (args || "").trim().toLowerCase();
-			if (arg === "on" || arg === "true" || arg === "1") backgroundDefault = true;
-			else if (arg === "off" || arg === "false" || arg === "0") backgroundDefault = false;
-			else backgroundDefault = !backgroundDefault;
-			ctx.ui.notify(
-				backgroundDefault
-					? "Quiet mode on. pi-chrome will work in the background; Chrome won't steal focus."
-					: "Watch mode on. Chrome will pop to the front and switch tabs so you can see what pi-chrome is doing.",
-				"info",
-			);
-		},
-	});
-
-	pi.registerCommand("chrome-onboard", {
-		description: "Walk through installing the Chrome companion extension that pi-chrome needs to control your browser.",
-		handler: async (_args, ctx) => {
-			const extensionPath = browserExtensionPath();
-			const proceed = await ctx.ui.confirm(
-				"Install the pi-chrome Chrome extension?",
-				`This opens Chrome's extensions page and reveals the folder pi-chrome needs you to load.\n\nWhen the windows open, in Chrome:\n  1. Turn on 'Developer mode' (top-right toggle).\n  2. Click 'Load unpacked' and choose the folder that just opened in Finder, or paste this path:\n     ${extensionPath}\n\nPress Enter to continue, or Esc to cancel.`,
-			);
-			if (!proceed) {
-				ctx.ui.notify("Cancelled. You can run /chrome-onboard again whenever you're ready.", "info");
+			const tokens = (args || "").trim().split(/\s+/).filter(Boolean);
+			if (tokens.length === 0) {
+				const picked = await ctx.ui.select("pi-chrome — what would you like to do?", [
+					"doctor — quick health check; tells you what's wrong if Chrome isn't responding",
+					"onboard — install the Chrome companion extension (first-time setup)",
+					"settings — change pi-chrome behaviour (background mode, click realism)",
+				]);
+				if (!picked) return;
+				if (picked.startsWith("doctor")) return doctorHandler(ctx);
+				if (picked.startsWith("onboard")) return onboardHandler(ctx);
+				if (picked.startsWith("settings")) return settingsHandler(ctx, []);
 				return;
 			}
-			if (process.platform === "darwin") {
-				await pi.exec("open", ["-a", "Google Chrome", "chrome://extensions"], { cwd: workspaceCwd(ctx), timeout: 5_000 }).catch(() => undefined);
-				await pi.exec("open", ["-R", extensionPath], { cwd: workspaceCwd(ctx), timeout: 5_000 }).catch(() => undefined);
-				await pi.exec("sh", ["-lc", `printf %s ${JSON.stringify(extensionPath)} | pbcopy`], { cwd: workspaceCwd(ctx), timeout: 5_000 }).catch(() => undefined);
+			const [head, ...rest] = tokens;
+			switch (head) {
+				case "doctor": return doctorHandler(ctx);
+				case "onboard": return onboardHandler(ctx);
+				case "settings": return settingsHandler(ctx, rest);
+				default:
+					ctx.ui.notify(`Unknown subcommand '${head}'. Try: /chrome doctor | onboard | settings.`, "warning");
 			}
-			ctx.ui.notify(
-				"Chrome and Finder should be open. The extension folder path is on your clipboard. After you click 'Load unpacked' and pick it, run /chrome-doctor to confirm everything is connected.",
-				"info",
-			);
 		},
 	});
 
