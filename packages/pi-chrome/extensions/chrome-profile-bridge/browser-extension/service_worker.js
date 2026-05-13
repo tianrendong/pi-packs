@@ -43,6 +43,13 @@ async function pollLoop() {
         cache: "no-store",
       });
       if (!response.ok) throw new Error(`bridge /next HTTP ${response.status}`);
+      const expected = response.headers.get("x-pi-chrome-version");
+      const ours = chrome.runtime.getManifest().version;
+      if (expected && expected !== ours && isVersionOlder(ours, expected)) {
+        console.warn(`[pi-chrome] extension v${ours} behind pi-chrome v${expected}; reloading extension`);
+        try { chrome.runtime.reload(); } catch {}
+        return;
+      }
       const payload = await response.json();
       if (payload.type === "command") await handleCommand(payload.command);
     }
@@ -72,6 +79,18 @@ async function postResult(result) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isVersionOlder(a, b) {
+  const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) {
+    const x = pa[i] ?? 0, y = pb[i] ?? 0;
+    if (x < y) return true;
+    if (x > y) return false;
+  }
+  return false;
 }
 
 async function dispatch(action, params) {
@@ -122,6 +141,8 @@ async function dispatch(action, params) {
       return executeActionInTab(params, fillPage, [params.selector ?? null, params.uid ?? null, params.text || "", params.submit === true]);
     case "page.key":
       return executeActionInTab(params, pressKeyInPage, [params.key]);
+    case "page.scroll":
+      return executeActionInTab(params, scrollPage, [params.selector ?? null, params.uid ?? null, params.deltaY ?? 0, params.deltaX ?? 0, params.steps ?? null]);
     case "page.console.list":
       return executeInTab(params, listConsoleMessages, [params.clear === true]);
     case "page.network.list":
@@ -207,6 +228,15 @@ const HELPER_FUNCS = [
   occluderAt,
   pageHash,
   pointerEventSequence,
+  sleepPage,
+  rand,
+  dispatchPointerLikeEvent,
+  humanMoveTo,
+  humanClickPoint,
+  printableKeyCode,
+  dispatchKeyEvent,
+  typeCharacter,
+  scrollPage,
 ];
 
 async function executeInTab(params, func, args) {
@@ -497,30 +527,92 @@ function pageHash() {
   return h;
 }
 
+function sleepPage(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function rand(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function dispatchPointerLikeEvent(element, type, x, y, prevX, prevY, opts = {}) {
+  const isPointer = type.startsWith("pointer");
+  const Ctor = isPointer ? PointerEvent : MouseEvent;
+  const isMove = type === "pointermove" || type === "mousemove";
+  const isUpOrClick = type === "pointerup" || type === "mouseup" || type === "click";
+  const init = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: x,
+    clientY: y,
+    screenX: x + (window.screenX || 0),
+    screenY: y + (window.screenY || 0),
+    movementX: Number.isFinite(prevX) ? x - prevX : 0,
+    movementY: Number.isFinite(prevY) ? y - prevY : 0,
+    button: 0,
+    buttons: isMove || isUpOrClick ? 0 : 1,
+  };
+  if (isPointer) {
+    init.pointerType = "mouse";
+    init.pointerId = 1;
+    init.isPrimary = true;
+    init.width = 1;
+    init.height = 1;
+    init.pressure = opts.pressure ?? (type === "pointerdown" ? 0.5 : 0);
+    init.tangentialPressure = 0;
+    init.tiltX = 0;
+    init.tiltY = 0;
+  }
+  const ev = new Ctor(type, init);
+  element.dispatchEvent(ev);
+  return ev.defaultPrevented;
+}
+
 function pointerEventSequence(element, x, y, sequence) {
   let defaultPrevented = false;
+  const state = getPiChromeState();
+  const prevX = state.pointer?.x;
+  const prevY = state.pointer?.y;
   for (const type of sequence) {
-    const isPointer = type.startsWith("pointer");
-    const Ctor = isPointer ? PointerEvent : MouseEvent;
-    const init = {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-      clientX: x,
-      clientY: y,
-      button: 0,
-      buttons: type === "pointermove" || type === "mousemove" ? 0 : 1,
-    };
-    if (isPointer) {
-      init.pointerType = "mouse";
-      init.pointerId = 1;
-      init.isPrimary = true;
-    }
-    const ev = new Ctor(type, init);
-    element.dispatchEvent(ev);
-    if (ev.defaultPrevented) defaultPrevented = true;
+    defaultPrevented = dispatchPointerLikeEvent(element, type, x, y, prevX, prevY) || defaultPrevented;
   }
+  state.pointer = { x, y, t: performance.now() };
   return defaultPrevented;
+}
+
+async function humanMoveTo(x, y, steps) {
+  const state = getPiChromeState();
+  const startX = Number.isFinite(state.pointer?.x) ? state.pointer.x : rand(12, Math.max(24, innerWidth - 12));
+  const startY = Number.isFinite(state.pointer?.y) ? state.pointer.y : rand(12, Math.max(24, innerHeight - 12));
+  const n = steps || Math.max(12, Math.min(42, Math.round(Math.hypot(x - startX, y - startY) / 18)));
+  let prevX = startX, prevY = startY;
+  let defaultPrevented = false;
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const ease = t * t * (3 - 2 * t);
+    const wobble = Math.sin(t * Math.PI) * 8;
+    const px = startX + (x - startX) * ease + rand(-wobble, wobble);
+    const py = startY + (y - startY) * ease + rand(-wobble, wobble);
+    const el = document.elementFromPoint(px, py) || document.body || document.documentElement;
+    defaultPrevented = dispatchPointerLikeEvent(el, "pointermove", px, py, prevX, prevY) || defaultPrevented;
+    defaultPrevented = dispatchPointerLikeEvent(el, "mousemove", px, py, prevX, prevY) || defaultPrevented;
+    prevX = px; prevY = py;
+    await sleepPage(rand(4, 18));
+  }
+  state.pointer = { x, y, t: performance.now() };
+  return defaultPrevented;
+}
+
+function humanClickPoint(point) {
+  if (!point.rect) return { x: point.x, y: point.y };
+  const rect = point.rect;
+  const insetX = Math.min(rect.width * 0.35, Math.max(2, rect.width / 2 - 1));
+  const insetY = Math.min(rect.height * 0.35, Math.max(2, rect.height / 2 - 1));
+  return {
+    x: rect.left + rect.width / 2 + rand(-insetX, insetX),
+    y: rect.top + rect.height / 2 + rand(-insetY, insetY),
+  };
 }
 
 function installPiChromeInstrumentation() {
@@ -773,16 +865,31 @@ function resolvePoint(selector, uid, x, y) {
   return { element: document.elementFromPoint(x, y), x, y, rect: undefined };
 }
 
-function clickPage(selector, uid, x, y) {
+async function clickPage(selector, uid, x, y) {
   installPiChromeInstrumentation();
   const before = pageHash();
   const point = resolvePoint(selector, uid, x, y);
   if (!point.element) throw new Error("No element at click point");
+  const clickPoint = humanClickPoint(point);
+  point.x = clickPoint.x;
+  point.y = clickPoint.y;
+  point.element = document.elementFromPoint(point.x, point.y) || point.element;
   const visible = isElementVisible(point.element);
   const occluded = occluderAt(point.x, point.y, point.element);
-  const defaultPrevented = pointerEventSequence(point.element, point.x, point.y, [
-    "pointerdown", "mousedown", "pointerup", "mouseup", "click",
-  ]);
+  let defaultPrevented = await humanMoveTo(point.x, point.y);
+  const state = getPiChromeState();
+  const prevX = state.pointer?.x;
+  const prevY = state.pointer?.y;
+  defaultPrevented = dispatchPointerLikeEvent(point.element, "pointerdown", point.x, point.y, prevX, prevY, { pressure: 0.5 }) || defaultPrevented;
+  defaultPrevented = dispatchPointerLikeEvent(point.element, "mousedown", point.x, point.y, prevX, prevY) || defaultPrevented;
+  if (typeof point.element.focus === "function" && /^(A|BUTTON|INPUT|TEXTAREA|SELECT|SUMMARY)$/.test(point.element.tagName)) {
+    try { point.element.focus({ preventScroll: true }); } catch { try { point.element.focus(); } catch {} }
+  }
+  await sleepPage(rand(45, 140));
+  defaultPrevented = dispatchPointerLikeEvent(point.element, "pointerup", point.x, point.y, prevX, prevY) || defaultPrevented;
+  defaultPrevented = dispatchPointerLikeEvent(point.element, "mouseup", point.x, point.y, prevX, prevY) || defaultPrevented;
+  defaultPrevented = dispatchPointerLikeEvent(point.element, "click", point.x, point.y, prevX, prevY) || defaultPrevented;
+  state.pointer = { x: point.x, y: point.y, t: performance.now() };
   // Heuristic: if the clicked thing looks like a media play affordance and the page has paused
   // audio/video, the synthetic click may not unlock autoplay. Surface a warning.
   let autoplayHint;
@@ -806,38 +913,136 @@ function clickPage(selector, uid, x, y) {
   };
 }
 
-function hoverPage(selector, uid, x, y) {
+async function hoverPage(selector, uid, x, y) {
   installPiChromeInstrumentation();
   const point = resolvePoint(selector, uid, x, y);
   if (!point.element) throw new Error("No element to hover");
-  const defaultPrevented = pointerEventSequence(point.element, point.x, point.y, [
-    "pointerover", "mouseover", "pointerenter", "mouseenter", "pointermove", "mousemove",
-  ]);
+  await humanMoveTo(point.x, point.y);
+  const state = getPiChromeState();
+  const prevX = state.pointer?.x, prevY = state.pointer?.y;
+  let defaultPrevented = false;
+  for (const type of ["pointerover", "mouseover", "pointerenter", "mouseenter"]) {
+    defaultPrevented = dispatchPointerLikeEvent(point.element, type, point.x, point.y, prevX, prevY) || defaultPrevented;
+  }
+  // Small dwell so hover-intent handlers fire.
+  await sleepPage(rand(80, 220));
   return { x: point.x, y: point.y, selector, uid, tag: point.element.tagName, defaultPrevented, isTrusted: false };
 }
 
-function dragPage(fromUid, fromSelector, fromX, fromY, toUid, toSelector, toX, toY, steps) {
+async function dragPage(fromUid, fromSelector, fromX, fromY, toUid, toSelector, toX, toY, steps) {
   installPiChromeInstrumentation();
   const before = pageHash();
   const from = resolvePoint(fromSelector, fromUid, fromX, fromY);
   const to = resolvePoint(toSelector, toUid, toX, toY);
   if (!from.element) throw new Error("Drag source element not found");
   if (!to.element) throw new Error("Drag target element not found");
-  pointerEventSequence(from.element, from.x, from.y, ["pointerover", "pointerdown", "mousedown"]);
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    const x = from.x + (to.x - from.x) * t;
-    const y = from.y + (to.y - from.y) * t;
+  // Move to source.
+  await humanMoveTo(from.x, from.y);
+  const state = getPiChromeState();
+  let prevX = state.pointer?.x, prevY = state.pointer?.y;
+  // Build a shared DataTransfer so HTML5 drag-and-drop handlers can populate / read it.
+  const dt = new DataTransfer();
+  const dragInit = (type, target, x, y) => {
+    const ev = new DragEvent(type, {
+      bubbles: true, cancelable: true, composed: true,
+      clientX: x, clientY: y,
+      screenX: x + (window.screenX || 0), screenY: y + (window.screenY || 0),
+      button: 0, buttons: 1, view: window,
+      dataTransfer: dt,
+    });
+    target.dispatchEvent(ev);
+    return ev;
+  };
+  dispatchPointerLikeEvent(from.element, "pointerover", from.x, from.y, prevX, prevY);
+  dispatchPointerLikeEvent(from.element, "pointerdown", from.x, from.y, prevX, prevY, { pressure: 0.5 });
+  dispatchPointerLikeEvent(from.element, "mousedown", from.x, from.y, prevX, prevY);
+  await sleepPage(rand(40, 110));
+  dragInit("dragstart", from.element, from.x, from.y);
+  dragInit("drag", from.element, from.x, from.y);
+  let lastOver = from.element;
+  const n = steps || 18;
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const ease = t * t * (3 - 2 * t);
+    const wobble = Math.sin(t * Math.PI) * 6;
+    const x = from.x + (to.x - from.x) * ease + rand(-wobble, wobble);
+    const y = from.y + (to.y - from.y) * ease + rand(-wobble, wobble);
     const overEl = document.elementFromPoint(x, y) || to.element;
-    pointerEventSequence(overEl, x, y, ["pointermove", "mousemove"]);
+    dispatchPointerLikeEvent(overEl, "pointermove", x, y, prevX, prevY);
+    dispatchPointerLikeEvent(overEl, "mousemove", x, y, prevX, prevY);
+    if (overEl !== lastOver) {
+      dragInit("dragleave", lastOver, x, y);
+      dragInit("dragenter", overEl, x, y);
+      lastOver = overEl;
+    }
+    dragInit("dragover", overEl, x, y);
+    dragInit("drag", from.element, x, y);
+    prevX = x; prevY = y;
+    await sleepPage(rand(8, 26));
   }
-  pointerEventSequence(to.element, to.x, to.y, ["pointerover", "mouseover", "pointerup", "mouseup"]);
+  dispatchPointerLikeEvent(to.element, "pointerover", to.x, to.y, prevX, prevY);
+  dispatchPointerLikeEvent(to.element, "mouseover", to.x, to.y, prevX, prevY);
+  dragInit("drop", to.element, to.x, to.y);
+  dragInit("dragend", from.element, to.x, to.y);
+  dispatchPointerLikeEvent(to.element, "pointerup", to.x, to.y, prevX, prevY);
+  dispatchPointerLikeEvent(to.element, "mouseup", to.x, to.y, prevX, prevY);
+  state.pointer = { x: to.x, y: to.y, t: performance.now() };
   return {
     from: { x: from.x, y: from.y },
     to: { x: to.x, y: to.y },
-    steps,
+    steps: n,
     pageMutated: pageHash() !== before,
-    note: "Synthetic pointer drag. HTML5 DataTransfer is not synthesized; native drag-and-drop targets may not respond.",
+    note: "Synthetic drag with HTML5 DragEvent + shared DataTransfer. isTrusted is still false.",
+  };
+}
+
+async function scrollPage(selector, uid, deltaY, deltaX, steps) {
+  installPiChromeInstrumentation();
+  const before = pageHash();
+  let target;
+  if (selector || uid) {
+    target = elementBySelectorOrUid(selector, uid);
+  } else {
+    target = document.scrollingElement || document.documentElement || document.body;
+  }
+  if (!target) throw new Error("No scroll target");
+  const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { left: 0, top: 0, width: innerWidth, height: innerHeight };
+  const cx = Math.max(0, Math.min(innerWidth - 1, rect.left + Math.min(rect.width, innerWidth) / 2));
+  const cy = Math.max(0, Math.min(innerHeight - 1, rect.top + Math.min(rect.height, innerHeight) / 2));
+  const n = Math.max(3, Math.min(40, steps || Math.max(3, Math.ceil(Math.abs(deltaY || 0) / 100))));
+  // Front-loaded wheel deltas, momentum-style.
+  const totalY = deltaY || 0;
+  const totalX = deltaX || 0;
+  const weights = [];
+  for (let i = 1; i <= n; i++) weights.push(1 / i);
+  const sumW = weights.reduce((a, b) => a + b, 0);
+  let movedY = 0, movedX = 0;
+  for (let i = 0; i < n; i++) {
+    const dy = totalY * (weights[i] / sumW);
+    const dx = totalX * (weights[i] / sumW);
+    const ev = new WheelEvent("wheel", {
+      bubbles: true, cancelable: true, composed: true, view: window,
+      clientX: cx, clientY: cy,
+      deltaX: dx, deltaY: dy, deltaMode: 0,
+    });
+    target.dispatchEvent(ev);
+    if (!ev.defaultPrevented) {
+      // Apply scroll ourselves; mirrors what the browser would do.
+      if (target === document.scrollingElement || target === document.documentElement || target === document.body) {
+        window.scrollBy({ left: dx, top: dy, behavior: "instant" });
+      } else {
+        target.scrollTop += dy;
+        target.scrollLeft += dx;
+      }
+    }
+    movedY += dy; movedX += dx;
+    await sleepPage(rand(12, 28));
+  }
+  return {
+    deltaX: movedX, deltaY: movedY, steps: n,
+    scrollTop: target.scrollTop, scrollLeft: target.scrollLeft,
+    pageMutated: pageHash() !== before,
+    isTrusted: false,
   };
 }
 
@@ -871,23 +1076,90 @@ function setNativeValue(element, value) {
   else element.value = value;
 }
 
-function typeIntoPage(selector, uid, text, pressEnter) {
+function printableKeyCode(ch) {
+  if (ch === " ") return 32;
+  const upper = ch.toUpperCase();
+  if (/^[A-Z]$/.test(upper)) return upper.charCodeAt(0);
+  if (/^[0-9]$/.test(ch)) return ch.charCodeAt(0);
+  return ch.charCodeAt(0) || 0;
+}
+
+function dispatchKeyEvent(element, type, key, mods = {}) {
+  const code = key.length === 1 && /^[a-z]$/i.test(key) ? `Key${key.toUpperCase()}` :
+    key.length === 1 && /^[0-9]$/.test(key) ? `Digit${key}` :
+    key === " " ? "Space" : key;
+  const SPECIAL = { Enter: 13, Tab: 9, Backspace: 8, Delete: 46, Escape: 27,
+    ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, " ": 32, Shift: 16, Control: 17, Alt: 18, Meta: 91 };
+  const keyCode = key.length === 1 ? printableKeyCode(key) : (SPECIAL[key] ?? 0);
+  const ev = new KeyboardEvent(type, {
+    key,
+    code,
+    keyCode,
+    which: keyCode,
+    charCode: type === "keypress" && key.length === 1 ? key.charCodeAt(0) : 0,
+    shiftKey: !!mods.shiftKey,
+    ctrlKey: !!mods.ctrlKey,
+    altKey: !!mods.altKey,
+    metaKey: !!mods.metaKey,
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    view: window,
+  });
+  element.dispatchEvent(ev);
+  return ev;
+}
+
+async function typeCharacter(element, ch) {
+  const needShift = ch.length === 1 && (/^[A-Z]$/.test(ch) || "~!@#$%^&*()_+{}|:\"<>?".includes(ch));
+  if (needShift) {
+    dispatchKeyEvent(element, "keydown", "Shift", { shiftKey: true });
+    await sleepPage(rand(8, 24));
+  }
+  const mods = { shiftKey: needShift };
+  const down = dispatchKeyEvent(element, "keydown", ch, mods);
+  if (down.defaultPrevented) {
+    if (needShift) dispatchKeyEvent(element, "keyup", "Shift", { shiftKey: false });
+    return { defaultPrevented: true };
+  }
+  if (ch.length === 1) dispatchKeyEvent(element, "keypress", ch, mods);
+
+  if (element.isContentEditable) {
+    // execCommand("insertText") fires its own beforeinput + input. Don't double-dispatch.
+    document.execCommand("insertText", false, ch);
+  } else if ("value" in element) {
+    const start = element.selectionStart ?? element.value.length;
+    const end = element.selectionEnd ?? element.value.length;
+    const next = element.value.slice(0, start) + ch + element.value.slice(end);
+    const before = new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: ch });
+    element.dispatchEvent(before);
+    if (!before.defaultPrevented) {
+      setNativeValue(element, next);
+      try { element.selectionStart = element.selectionEnd = start + ch.length; } catch {}
+      element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: ch }));
+    }
+  } else {
+    throw new Error("Focused element is not text-editable");
+  }
+
+  await sleepPage(rand(25, 95));
+  dispatchKeyEvent(element, "keyup", ch, mods);
+  if (needShift) {
+    await sleepPage(rand(5, 18));
+    dispatchKeyEvent(element, "keyup", "Shift", { shiftKey: false });
+  }
+  await sleepPage(rand(35, 140));
+  return { defaultPrevented: false };
+}
+
+async function typeIntoPage(selector, uid, text, pressEnter) {
   installPiChromeInstrumentation();
   const before = pageHash();
   let element = elementBySelectorOrUid(selector, uid) || document.activeElement;
   if (!element) throw new Error(selector || uid ? `No element for ${selector || uid}` : "No active element");
   element.focus();
-  if (element.isContentEditable) {
-    document.execCommand("insertText", false, text);
-  } else if ("value" in element) {
-    const start = element.selectionStart ?? element.value.length;
-    const end = element.selectionEnd ?? element.value.length;
-    setNativeValue(element, element.value.slice(0, start) + text + element.value.slice(end));
-    element.selectionStart = element.selectionEnd = start + text.length;
-    dispatchInputEvents(element, text, "insertText");
-  } else {
-    throw new Error("Focused element is not text-editable");
-  }
+  if (!(element.isContentEditable || "value" in element)) throw new Error("Focused element is not text-editable");
+  for (const ch of Array.from(text)) await typeCharacter(element, ch);
   if (pressEnter) pressKeyInPage("Enter");
   return {
     selector, uid, length: text.length, pressEnter,
@@ -923,14 +1195,48 @@ function fillPage(selector, uid, text, submit) {
   };
 }
 
-function pressKeyInPage(key) {
+async function pressKeyInPage(key) {
   const normalized = normalizeKey(key);
   const target = document.activeElement || document.body;
-  const before = (typeof pageHash === "function") ? pageHash() : 0;
-  const down = new KeyboardEvent("keydown", { key: normalized, bubbles: true, cancelable: true });
-  target.dispatchEvent(down);
-  const up = new KeyboardEvent("keyup", { key: normalized, bubbles: true, cancelable: true });
-  target.dispatchEvent(up);
+  const before = pageHash();
+  const down = dispatchKeyEvent(target, "keydown", normalized);
+  if (normalized.length === 1) dispatchKeyEvent(target, "keypress", normalized);
+  // Character insertion for printable keys when focus is in an editable.
+  if (normalized.length === 1 && !down.defaultPrevented && (target.isContentEditable || ("value" in target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")))) {
+    if (target.isContentEditable) {
+      const bi = new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: normalized });
+      target.dispatchEvent(bi);
+      if (!bi.defaultPrevented) {
+        document.execCommand("insertText", false, normalized);
+        target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: normalized }));
+      }
+    } else {
+      const start = target.selectionStart ?? target.value.length;
+      const end = target.selectionEnd ?? target.value.length;
+      const bi = new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: normalized });
+      target.dispatchEvent(bi);
+      if (!bi.defaultPrevented) {
+        setNativeValue(target, target.value.slice(0, start) + normalized + target.value.slice(end));
+        try { target.selectionStart = target.selectionEnd = start + 1; } catch {}
+        target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: normalized }));
+      }
+    }
+  } else if (normalized === "Backspace" && "value" in target) {
+    const start = target.selectionStart ?? target.value.length;
+    const end = target.selectionEnd ?? target.value.length;
+    if (start > 0 || end > start) {
+      const from = start === end ? start - 1 : start;
+      const bi = new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "deleteContentBackward" });
+      target.dispatchEvent(bi);
+      if (!bi.defaultPrevented) {
+        setNativeValue(target, target.value.slice(0, from) + target.value.slice(end));
+        try { target.selectionStart = target.selectionEnd = from; } catch {}
+        target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }));
+      }
+    }
+  }
+  await sleepPage(rand(25, 95));
+  const up = dispatchKeyEvent(target, "keyup", normalized);
   if (normalized === "Enter") {
     const form = target.closest?.("form");
     if (form) form.requestSubmit?.();
@@ -939,7 +1245,7 @@ function pressKeyInPage(key) {
     key: normalized,
     isTrusted: false,
     defaultPrevented: down.defaultPrevented || up.defaultPrevented,
-    pageMutated: (typeof pageHash === "function") ? pageHash() !== before : undefined,
+    pageMutated: pageHash() !== before,
   };
 }
 

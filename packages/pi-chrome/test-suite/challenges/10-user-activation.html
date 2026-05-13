@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>10 user activation gates</title>
+<link rel="stylesheet" href="../_style.css">
+<script src="../_lib.js"></script>
+<body>
+<main>
+  <p>Goal: click the button. Handler then tries gated APIs (clipboard.writeText, fullscreen).
+     Success requires <code>navigator.userActivation.isActive</code> and at least one gated API to succeed.</p>
+  <button id="go" style="padding:20px 32px;font-size:18px;background:#1f7a1f;color:#fff;border:0;border-radius:6px">Click me</button>
+</main>
+<script>
+Challenge.init({ id: "user-activation", instructions: "click button; user-activation must unlock gated APIs" });
+document.getElementById("go").addEventListener("click", async () => {
+  const ua = navigator.userActivation;
+  Challenge.log("activation", { isActive: ua?.isActive, hasBeenActive: ua?.hasBeenActive });
+  let clip = "skip", fs = "skip";
+  try { await navigator.clipboard.writeText("pi-chrome-test"); clip = "ok"; }
+  catch (e) { clip = "err:" + e.name; }
+  try { await document.documentElement.requestFullscreen(); fs = "ok"; document.exitFullscreen?.(); }
+  catch (e) { fs = "err:" + e.name; }
+  const bad = [];
+  if (!ua?.isActive) bad.push("userActivation.isActive === false (synthetic click)");
+  if (clip.startsWith("err")) bad.push("clipboard.writeText " + clip);
+  if (fs.startsWith("err")) bad.push("requestFullscreen " + fs);
+  Challenge.log("gates", { clip, fs });
+  if (bad.length) Challenge.fail(...bad);
+  else Challenge.pass(`activation active; clipboard=${clip}; fullscreen=${fs}`);
+});
+</script>
+</body>

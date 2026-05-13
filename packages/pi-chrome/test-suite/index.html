@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>pi-chrome anti-automation test suite</title>
+<link rel="stylesheet" href="_style.css">
+<body>
+<main style="max-width:1100px">
+<h1>pi-chrome anti-automation test suite</h1>
+<p>Each row links to a challenge page. Open it, drive the interaction with <code>chrome_*</code> tools,
+then read <code>window.__verdict</code> via <code>chrome_evaluate</code>. Use the "Run all" button below
+to poll every challenge's verdict into a single table.</p>
+
+<table id="tbl" style="border-collapse:collapse;width:100%;font:13px monospace">
+  <thead><tr><th align=left>id</th><th align=left>file</th><th align=left>verdict</th><th align=left>open</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<p><button id="poll" style="margin-top:12px;padding:8px 14px">Refresh verdicts from any tab on this origin</button></p>
+
+<h2>How to drive from pi</h2>
+<pre style="background:#111;padding:12px;border-radius:6px;overflow:auto">
+# 1. Start static server in test-suite/
+python3 -m http.server 8765
+
+# 2. From pi:
+chrome_navigate http://127.0.0.1:8765/challenges/01-is-trusted-click.html
+chrome_click selector=#go
+chrome_evaluate JSON.stringify({v:window.__verdict, r:window.__reason})
+</pre>
+
+<script>
+const challenges = [
+  ["is-trusted-click",      "challenges/01-is-trusted-click.html"],
+  ["is-trusted-keyboard",   "challenges/02-is-trusted-keyboard.html"],
+  ["webdriver-flag",        "challenges/03-webdriver-flag.html"],
+  ["mouse-entropy",         "challenges/04-mouse-entropy.html"],
+  ["event-timing",          "challenges/05-event-timing.html"],
+  ["click-coordinates",     "challenges/06-click-coordinates.html"],
+  ["pointer-properties",    "challenges/07-pointer-properties.html"],
+  ["keyboard-cadence",      "challenges/08-keyboard-cadence.html"],
+  ["composition-input",     "challenges/09-composition-input.html"],
+  ["user-activation",       "challenges/10-user-activation.html"],
+  ["honeypot",              "challenges/11-honeypot.html"],
+  ["fingerprint",           "challenges/12-fingerprint.html"],
+  ["focus-order",           "challenges/13-focus-order.html"],
+  ["wheel-scroll",          "challenges/14-wheel-scroll.html"],
+  ["drag-drop-datatransfer", "challenges/15-drag-drop-datatransfer.html"],
+  ["contenteditable-selection", "challenges/16-contenteditable-selection.html"],
+  ["paste-clipboard",       "challenges/17-paste-clipboard.html"],
+  ["native-select",         "challenges/18-native-select.html"],
+  ["hover-dwell",           "challenges/19-hover-dwell.html"],
+  ["react-value-tracker",   "challenges/20-react-value-tracker.html"],
+  ["keyboard-modifiers",    "challenges/21-keyboard-modifiers.html"],
+  ["touch-events",          "challenges/22-touch-events.html"],
+  ["stack-trace-fingerprint", "challenges/23-stack-trace-fingerprint.html"],
+  ["viewport-edge-clicks",  "challenges/24-viewport-edge-clicks.html"],
+  ["pointer-continuity",    "challenges/25-pointer-continuity.html"],
+  ["mousemove-rate",        "challenges/26-mousemove-rate.html"],
+  ["scroll-momentum",       "challenges/27-scroll-momentum.html"],
+  ["intersection-visibility", "challenges/28-intersection-visibility.html"],
+];
+const tbody = document.querySelector("#tbl tbody");
+const rowFor = {};
+for (const [id, file] of challenges) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${id}</td><td>${file}</td><td class=v>—</td><td><a target=_blank href="${file}">open</a></td>`;
+  tbody.appendChild(tr);
+  rowFor[id] = tr;
+}
+
+// localStorage rendezvous: each challenge page writes its verdict on change.
+function paint() {
+  for (const [id] of challenges) {
+    const raw = localStorage.getItem("pi-chrome-suite:" + id);
+    if (!raw) continue;
+    try {
+      const { verdict, reason } = JSON.parse(raw);
+      const td = rowFor[id].querySelector(".v");
+      td.textContent = verdict + (reason?.length ? "  — " + reason.join(" / ") : "");
+      td.style.background = verdict === "PASS" ? "#1f7a1f" : verdict === "FAIL" ? "#a11" : "#444";
+      td.style.color = "#fff";
+    } catch {}
+  }
+}
+document.getElementById("poll").addEventListener("click", paint);
+window.addEventListener("storage", paint);
+setInterval(paint, 1000);
+paint();
+</script>
+</main>
+</body>

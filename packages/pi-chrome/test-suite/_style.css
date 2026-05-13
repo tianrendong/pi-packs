@@ -1,0 +1,4 @@
+body { font: 14px system-ui, sans-serif; margin: 0; background: #1a1a1a; color: #eee; }
+main { padding: 24px; max-width: 720px; }
+code { background:#222;padding:1px 4px;border-radius:3px }
+a { color: #6cf; }

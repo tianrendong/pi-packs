@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, join, resolve } from "node:path";
@@ -46,7 +46,15 @@ type BridgeResult = {
 	error?: string;
 };
 
-const PI_CHROME_VERSION = "0.8.0";
+const PI_CHROME_PKG_PATH = resolve(__dirname, "..", "..", "package.json");
+function readPiChromeVersion(): string {
+	try {
+		const pkg = JSON.parse(readFileSync(PI_CHROME_PKG_PATH, "utf8")) as { version?: string };
+		if (pkg.version) return pkg.version;
+	} catch {}
+	return "0.0.0-dev";
+}
+const PI_CHROME_VERSION = readPiChromeVersion();
 const PI_CHROME_GLOBAL_KEY = "__piChromeProfileBridgeLoaded__";
 const DEFAULT_HOST = process.env.PI_CHROME_BRIDGE_HOST ?? "127.0.0.1";
 const DEFAULT_PORT = Number(process.env.PI_CHROME_BRIDGE_PORT ?? "17318");
@@ -118,13 +126,14 @@ function readRequestBody(request: IncomingMessage): Promise<string> {
 	});
 }
 
-function sendJson(response: ServerResponse, status: number, body: unknown): void {
+function sendJson(response: ServerResponse, status: number, body: unknown, extraHeaders?: Record<string, string>): void {
 	response.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
 		"access-control-allow-origin": "*",
 		"access-control-allow-methods": "GET,POST,OPTIONS",
 		"access-control-allow-headers": "content-type",
 		"cache-control": "no-store",
+		...(extraHeaders ?? {}),
 	});
 	response.end(JSON.stringify(body));
 }
@@ -316,7 +325,16 @@ class ChromeProfileBridge {
 				if (command) this.queue.unshift(command);
 				return;
 			}
-			sendJson(response, 200, command ? { type: "command", command } : { type: "none" });
+			// Re-read version on every /next so bumping package.json takes effect without pi restart.
+			const currentVersion = readPiChromeVersion();
+			sendJson(
+				response,
+				200,
+				command
+					? { type: "command", command, expectedExtensionVersion: currentVersion }
+					: { type: "none", expectedExtensionVersion: currentVersion },
+				{ "x-pi-chrome-version": currentVersion },
+			);
 			return;
 		}
 		if (request.method === "POST" && url.pathname === "/result") {
@@ -438,6 +456,7 @@ Usage rules:
 			const status = bridge.status();
 			lines.push(`• Local bridge: mode=${status.mode}, url=${status.url}`);
 			let extensionAlive = false;
+			let versionMismatch = false;
 			try {
 				const started = Date.now();
 				const version = (await bridge.send("tab.version", {}, 35_000)) as {
@@ -447,11 +466,16 @@ Usage rules:
 				};
 				const latencyMs = Date.now() - started;
 				extensionAlive = true;
-				lines.push(`✓ Companion Chrome extension responding (ID: ${version.extensionId ?? "?"}, ext v${version.extensionVersion ?? "?"}, latency ${latencyMs}ms)`);
 				if (version.extensionVersion && version.extensionVersion !== PI_CHROME_VERSION) {
+					versionMismatch = true;
 					lines.push(
-						`⚠ Extension version (${version.extensionVersion}) differs from pi-chrome (${PI_CHROME_VERSION}). Reload "Pi Existing Chrome Profile Bridge" in chrome://extensions to pick up the latest service worker.`,
+						`✗ EXTENSION VERSION MISMATCH: companion extension is v${version.extensionVersion}, but pi-chrome is v${PI_CHROME_VERSION}.`,
+						`  All chrome_* tools will run with the OLD extension code until this is fixed.`,
+						`  Fix: open chrome://extensions and click reload on "Pi Existing Chrome Profile Bridge".`,
+						`  (Future version drifts will self-heal: the extension now polls pi-chrome's expected version and reloads itself.)`,
 					);
+				} else {
+					lines.push(`✓ Companion Chrome extension responding (ID: ${version.extensionId ?? "?"}, ext v${version.extensionVersion ?? "?"}, latency ${latencyMs}ms)`);
 				}
 			} catch (error) {
 				const message = (error as Error).message;
@@ -463,7 +487,7 @@ Usage rules:
 				}
 			}
 
-			if (extensionAlive) {
+			if (extensionAlive && !versionMismatch) {
 				// MAIN-world evaluate probe.
 				try {
 					const value = await bridge.send("page.evaluate", { expression: "1+1", awaitPromise: true, foreground: false }, 10_000);
@@ -481,6 +505,8 @@ Usage rules:
 				} catch (error) {
 					lines.push(`⚠ page.probe failed: ${(error as Error).message}`);
 				}
+			} else if (versionMismatch) {
+				lines.push(`… Skipped MAIN-world capability checks because the loaded extension is stale.`);
 			}
 
 			// CDP availability hint.
@@ -990,7 +1016,7 @@ Usage rules:
 	pi.registerTool({
 		name: "chrome_drag",
 		label: "Chrome Drag",
-		description: "Synthetic pointer drag from one uid/selector/point to another. Dispatches pointerdown → multi-step pointermove → pointerup. Note: HTML5 DataTransfer is NOT synthesized, so native HTML5 drag-and-drop targets may not respond.",
+		description: "Synthetic drag from one uid/selector/point to another. Dispatches pointerdown → humanised pointermove path → dragstart/drag/dragenter/dragover/dragleave/drop/dragend with a shared HTML5 DataTransfer, then pointerup. isTrusted=false.",
 		promptSnippet: "Drag a Chrome element from one point to another.",
 		parameters: Type.Object({
 			fromUid: Type.Optional(Type.String()),
@@ -1010,6 +1036,28 @@ Usage rules:
 		async execute(_id, params): Promise<ToolTextResult> {
 			const result = await bridge.send("page.drag", withBackground(params), DEFAULT_TIMEOUT_MS);
 			return { content: [{ type: "text", text: `Dragged from ${params.fromUid ?? params.fromSelector} to ${params.toUid ?? params.toSelector}` }], details: { result: result as Json } };
+		},
+	});
+
+	pi.registerTool({
+		name: "chrome_scroll",
+		label: "Chrome Scroll",
+		description: "Scroll the page or a specific scrollable element by dispatching real wheel events with momentum-shaped deltas, then applying the scroll. Positive deltaY scrolls down. Pass uid/selector to scroll within a container, otherwise the document scrolls.",
+		promptSnippet: "Scroll a Chrome page or container via wheel events (not raw scrollTop).",
+		parameters: Type.Object({
+			uid: Type.Optional(Type.String()),
+			selector: Type.Optional(Type.String()),
+			deltaY: Type.Optional(Type.Number({ description: "Pixels to scroll vertically. Positive = down." })),
+			deltaX: Type.Optional(Type.Number({ description: "Pixels to scroll horizontally. Positive = right." })),
+			steps: Type.Optional(Type.Number({ description: "Number of wheel events to dispatch. Defaults to ceil(|deltaY|/100)." })),
+			targetId: Type.Optional(Type.String()),
+			urlIncludes: Type.Optional(Type.String()),
+			titleIncludes: Type.Optional(Type.String()),
+			background: Type.Optional(Type.Boolean()),
+		}),
+		async execute(_id, params): Promise<ToolTextResult> {
+			const result = await bridge.send("page.scroll", withBackground(params), DEFAULT_TIMEOUT_MS);
+			return { content: [{ type: "text", text: `Scrolled dy=${params.deltaY ?? 0} dx=${params.deltaX ?? 0}` }], details: { result: result as Json } };
 		},
 	});
 
