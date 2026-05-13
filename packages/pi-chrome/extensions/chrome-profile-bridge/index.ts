@@ -546,27 +546,83 @@ Usage rules:
 			return matches.length > 0 ? matches : null;
 		},
 		handler: async (args, ctx) => {
-			const arg = (args || "").trim().toLowerCase();
-			if (arg === "status" || arg === "") {
-				try {
-					const status = (await bridge.send("trusted.status", {}, 5_000)) as { mode: string; attachedTabs: number[]; permissionGranted: boolean };
-					const attached = status.attachedTabs?.length ? ` (attached to tab ${status.attachedTabs.join(",")})` : "";
-					const perm = status.permissionGranted ? "" : " — chrome.debugger API unavailable; reload the extension and accept the new permission.";
-					ctx.ui.notify(`Trusted-input mode: ${status.mode}${attached}${perm}`, "info");
-				} catch (error) {
-					ctx.ui.notify(`Failed to read trusted mode: ${(error as Error).message}`, "warning");
-				}
-				return;
-			}
-			if (!["on", "off", "auto"].includes(arg)) {
-				ctx.ui.notify(`Unknown argument '${arg}'. Use: on | off | auto | status`, "warning");
-				return;
-			}
+			const rawArg = (args || "").trim().toLowerCase();
+
+			// Resolve current status once for both branches (interactive picker + direct args).
+			let status: { mode: string; attachedTabs: number[]; permissionGranted: boolean } | undefined;
 			try {
-				const result = (await bridge.send("trusted.mode", { mode: arg }, 5_000)) as { mode: string };
+				status = (await bridge.send("trusted.status", {}, 5_000)) as typeof status;
+			} catch (error) {
+				ctx.ui.notify(`Failed to read trusted mode: ${(error as Error).message}`, "warning");
+				return;
+			}
+			if (!status) return;
+
+			if (!status.permissionGranted) {
+				ctx.ui.notify(
+					"chrome.debugger API unavailable — the extension is missing the 'debugger' permission. Open chrome://extensions, reload 'Pi Existing Chrome Profile Bridge', and accept the new permission prompt.",
+					"warning",
+				);
+				return;
+			}
+
+			const attached = status.attachedTabs?.length ? ` — currently attached to tab ${status.attachedTabs.join(",")}` : "";
+			const current = status.mode;
+
+			let target = rawArg;
+			if (target === "status") {
+				ctx.ui.notify(`Trusted-input mode: ${current}${attached}`, "info");
+				return;
+			}
+			if (!target) {
+				// Interactive picker. Show current mode + tradeoffs in each label.
+				const options = [
+					`on${current === "on" ? " (current)" : ""} — all chrome_* tools via CDP; yellow debugger banner appears`,
+					`off${current === "off" ? " (current)" : ""} — synthetic DOM events only (default)`,
+					`auto${current === "auto" ? " (current)" : ""} — CDP only when a tool passes trusted=true`,
+					`status — print current mode and any attached tabs\u2026`,
+				];
+				const picked = await ctx.ui.select(
+					`Trusted-input mode (current: ${current}${attached})`,
+					options,
+				);
+				if (!picked) return; // cancelled
+				if (picked.startsWith("on")) target = "on";
+				else if (picked.startsWith("off")) target = "off";
+				else if (picked.startsWith("auto")) target = "auto";
+				else if (picked.startsWith("status")) {
+					ctx.ui.notify(`Trusted-input mode: ${current}${attached}`, "info");
+					return;
+				}
+			}
+
+			if (!["on", "off", "auto"].includes(target)) {
+				ctx.ui.notify(`Unknown argument '${rawArg}'. Use: on | off | auto | status, or run /chrome-trusted with no args for a picker.`, "warning");
+				return;
+			}
+
+			if (target === current) {
+				ctx.ui.notify(`Trusted-input mode already ${current}.`, "info");
+				return;
+			}
+
+			// Extra confirmation only on first-time "on" (warn about banner).
+			if (target === "on" && current === "off") {
+				const ok = await ctx.ui.confirm(
+					"Turn on trusted-input mode?",
+					"All chrome_* tools will dispatch through chrome.debugger (CDP). Events will arrive as isTrusted=true and satisfy user-activation gates (clipboard, fullscreen, autoplay, file picker).\n\nChrome will pin a yellow 'Pi Existing Chrome Profile Bridge started debugging this browser' banner to the top of any debugged tab while attached. Clicking 'Cancel' on that banner detaches the debugger.",
+				);
+				if (!ok) {
+					ctx.ui.notify("Trusted-input mode unchanged.", "info");
+					return;
+				}
+			}
+
+			try {
+				const result = (await bridge.send("trusted.mode", { mode: target }, 5_000)) as { mode: string };
 				if (result.mode === "on") {
 					ctx.ui.notify(
-						"Trusted-input mode ON. All chrome_* tools now dispatch through chrome.debugger (CDP). Chrome will show a yellow 'started debugging this browser' banner. Events arrive as isTrusted=true and satisfy user-activation gates.",
+						"Trusted-input mode ON. chrome_* tools now dispatch through chrome.debugger. The yellow debugger banner will appear when Chrome is next driven.",
 						"info",
 					);
 				} else if (result.mode === "off") {
