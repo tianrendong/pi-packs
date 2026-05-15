@@ -9,6 +9,8 @@ Umbrella Pi package that lets users install a curated set of individually publis
 - [`pi-bar`](https://www.npmjs.com/package/pi-bar) — show model, thinking, and context in the footer.
 - [`pi-prompt-shelf`](https://www.npmjs.com/package/pi-prompt-shelf) — shelve and restore prompt drafts.
 - [`pi-caveman`](https://www.npmjs.com/package/pi-caveman) — make replies terse to save tokens.
+- [`pi-graphite`](https://www.npmjs.com/package/pi-graphite) — manage Graphite stacks from Pi.
+- [`pi-gh-cli`](https://www.npmjs.com/package/pi-gh-cli) — drive the GitHub CLI from Pi.
 
 ## Operating principles
 

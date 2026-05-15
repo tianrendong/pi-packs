@@ -1,7 +1,7 @@
 {
   "name": "pi-packs",
-  "version": "0.7.11",
-  "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman).",
+  "version": "0.7.12",
+  "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman, pi-graphite, pi-gh-cli).",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -13,7 +13,9 @@
     "pi-linter",
     "pi-bar",
     "pi-prompt-shelf",
-    "pi-caveman"
+    "pi-caveman",
+    "pi-graphite",
+    "pi-gh-cli"
   ],
   "license": "MIT",
   "repository": {
@@ -36,13 +38,42 @@
   },
   "pi-packs": {
     "installable": [
-      { "name": "pi-qq", "description": "Ask side questions in an overlay." },
-      { "name": "pi-chrome", "description": "Drive your existing Chrome profile." },
-      { "name": "pi-intercom", "description": "Message other local Pi sessions." },
-      { "name": "pi-linter", "description": "Lint prompt drafts before sending." },
-      { "name": "pi-bar", "description": "Show model, thinking, and context in the footer." },
-      { "name": "pi-prompt-shelf", "description": "Shelve and restore prompt drafts." },
-      { "name": "pi-caveman", "description": "Make replies terse to save tokens." }
+      {
+        "name": "pi-qq",
+        "description": "Ask side questions in an overlay."
+      },
+      {
+        "name": "pi-chrome",
+        "description": "Drive your existing Chrome profile."
+      },
+      {
+        "name": "pi-intercom",
+        "description": "Message other local Pi sessions."
+      },
+      {
+        "name": "pi-linter",
+        "description": "Lint prompt drafts before sending."
+      },
+      {
+        "name": "pi-bar",
+        "description": "Show model, thinking, and context in the footer."
+      },
+      {
+        "name": "pi-prompt-shelf",
+        "description": "Shelve and restore prompt drafts."
+      },
+      {
+        "name": "pi-caveman",
+        "description": "Make replies terse to save tokens."
+      },
+      {
+        "name": "pi-graphite",
+        "description": "Manage Graphite stacks from Pi."
+      },
+      {
+        "name": "pi-gh-cli",
+        "description": "Drive the GitHub CLI from Pi."
+      }
     ]
   },
   "pi": {
