@@ -1,7 +1,7 @@
 {
   "name": "pi-packs",
-  "version": "0.7.12",
-  "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman, pi-graphite, pi-gh-cli).",
+  "version": "0.7.13",
+  "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman, pi-graphite, pi-gh-cli, pi-loadout).",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -15,7 +15,8 @@
     "pi-prompt-shelf",
     "pi-caveman",
     "pi-graphite",
-    "pi-gh-cli"
+    "pi-gh-cli",
+    "pi-loadout"
   ],
   "license": "MIT",
   "repository": {
@@ -73,6 +74,10 @@
       {
         "name": "pi-gh-cli",
         "description": "Drive the GitHub CLI from Pi."
+      },
+      {
+        "name": "pi-loadout",
+        "description": "Manage reusable Pi setup loadouts."
       }
     ]
   },

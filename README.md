@@ -11,6 +11,7 @@ Umbrella Pi package that lets users install a curated set of individually publis
 - [`pi-caveman`](https://www.npmjs.com/package/pi-caveman) — make replies terse to save tokens.
 - [`pi-graphite`](https://www.npmjs.com/package/pi-graphite) — manage Graphite stacks from Pi.
 - [`pi-gh-cli`](https://www.npmjs.com/package/pi-gh-cli) — drive the GitHub CLI from Pi.
+- [`pi-loadout`](https://www.npmjs.com/package/pi-loadout) — manage reusable Pi setup loadouts.
 
 ## Operating principles
 
