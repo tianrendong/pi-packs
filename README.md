@@ -12,6 +12,7 @@ Umbrella Pi package that lets users install a curated set of individually publis
 - [`pi-graphite`](https://www.npmjs.com/package/pi-graphite) — manage Graphite stacks from Pi.
 - [`pi-gh-cli`](https://www.npmjs.com/package/pi-gh-cli) — drive the GitHub CLI from Pi.
 - [`pi-loadout`](https://www.npmjs.com/package/pi-loadout) — manage reusable Pi setup loadouts.
+- [`pi-cp`](https://www.npmjs.com/package/pi-cp) — Slack-ready rich clipboard commands for pi assistant responses.
 
 ## Operating principles
 

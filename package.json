@@ -1,7 +1,7 @@
 {
   "name": "pi-packs",
-  "version": "0.7.14",
-  "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman, pi-graphite, pi-gh-cli, pi-loadout).",
+  "version": "0.7.15",
+  "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman, pi-graphite, pi-gh-cli, pi-loadout, pi-cp).",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -16,7 +16,8 @@
     "pi-caveman",
     "pi-graphite",
     "pi-gh-cli",
-    "pi-loadout"
+    "pi-loadout",
+    "pi-cp"
   ],
   "license": "MIT",
   "repository": {
@@ -78,6 +79,10 @@
       {
         "name": "pi-loadout",
         "description": "Manage reusable Pi setup loadouts."
+      },
+      {
+        "name": "pi-cp",
+        "description": "Slack-ready rich clipboard commands for pi assistant responses."
       }
     ]
   },
