@@ -1,7 +1,7 @@
 {
   "name": "pi-packs",
-  "version": "0.7.16",
-  "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman, pi-graphite, pi-gh-cli, pi-loadout, pi-cp).",
+  "version": "0.7.17",
+  "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman, pi-graphite, pi-gh-cli, pi-loadout, pi-cp).",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -9,7 +9,6 @@
     "pi-packs",
     "pi-qq",
     "pi-chrome",
-    "pi-intercom",
     "pi-linter",
     "pi-bar",
     "pi-prompt-shelf",
@@ -47,10 +46,6 @@
       {
         "name": "pi-chrome",
         "description": "Drive your existing Chrome profile."
-      },
-      {
-        "name": "pi-intercom",
-        "description": "Message other local Pi sessions."
       },
       {
         "name": "pi-linter",

@@ -4,7 +4,6 @@ Umbrella Pi package that lets users install a curated set of individually publis
 
 - [`pi-qq`](https://www.npmjs.com/package/pi-qq) — ask side questions in an overlay.
 - [`pi-chrome`](https://www.npmjs.com/package/pi-chrome) — drive your existing Chrome profile.
-- [`pi-intercom`](https://www.npmjs.com/package/pi-intercom) — message other local Pi sessions.
 - [`pi-linter`](https://www.npmjs.com/package/pi-linter) — lint prompt drafts before sending.
 - [`pi-bar`](https://www.npmjs.com/package/pi-bar) — show model, thinking, and context in the footer.
 - [`pi-prompt-shelf`](https://www.npmjs.com/package/pi-prompt-shelf) — shelve and restore prompt drafts.
