@@ -1,6 +1,6 @@
 {
   "name": "pi-packs",
-  "version": "0.7.15",
+  "version": "0.7.16",
   "description": "Umbrella Pi package: /install picker for a curated set of pi extensions (pi-qq, pi-chrome, pi-intercom, pi-linter, pi-bar, pi-prompt-shelf, pi-caveman, pi-graphite, pi-gh-cli, pi-loadout, pi-cp).",
   "type": "module",
   "keywords": [
